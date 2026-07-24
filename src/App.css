@@ -1,0 +1,142 @@
+@import "tailwindcss";
+
+/* Lets `dark:` utilities (and our own .dark overrides below) key off a class on <html>
+   instead of only the OS-level prefers-color-scheme media query, so the in-app
+   Light/Dark/System toggle (see src/lib/theme.ts) has full manual control. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  /* Brand palette (chosen by the user). brand-900 is deliberately NOT re-themed below —
+     it's used as a fixed dark-navy accent (e.g. small delete badges) independent of page
+     theme. Body text uses the separate `ink` token instead, which IS re-themed. */
+  --color-brand-900: #112e81; /* deep navy   - fixed accent, not theme-aware */
+  --color-brand-600: #4647ae; /* indigo blue - gradients, secondary accents */
+  --color-brand-500: #4382df; /* bright blue - primary actions, active states */
+  --color-brand-200: #aaccd6; /* soft sky    - tints, subtle backgrounds */
+
+  /* Semantic, theme-aware tokens. Light values here; dark values in `.dark` below. */
+  --color-page: #f4f6fb; /* app background */
+  --color-surface: #ffffff; /* card/button/input surfaces (was literal bg-white) */
+  --color-surface-muted: #f4f6fb; /* nested panels: segmented-control tracks, etc. */
+  --color-ink: #112e81; /* primary text color (was literal text-brand-900) */
+
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Dark theme. Overrides the CSS custom properties Tailwind's utilities already read from
+   (both our own tokens above and Tailwind's built-in palette, which v4 exposes the same
+   way) — so every existing bg-white/text-brand-900/bg-emerald-100 etc. across the app
+   re-themes automatically, without needing a `dark:` variant on each of the ~1000+ call
+   sites. Only shades actually used in this codebase are listed. */
+.dark {
+  --color-brand-600: #4a52b0;
+  --color-brand-500: #3a72c8;
+  --color-brand-200: #22384a;
+
+  --color-page: #10141f;
+  --color-surface: #1a2233;
+  --color-surface-muted: #232c40;
+  --color-ink: #e8ecf9;
+
+  --color-gray-50: #0f1420;
+  --color-gray-100: #232c40;
+  --color-gray-200: #333d55;
+  --color-gray-400: #9aa5c3;
+  --color-gray-500: #a7b0c9;
+  --color-gray-700: #cdd3e6;
+
+  --color-red-50: #450a0a;
+  --color-red-100: #7f1d1d;
+  --color-red-400: #fca5a5;
+  --color-red-500: #f87171;
+  --color-red-600: #f87171;
+
+  --color-emerald-100: #064e3b;
+  --color-emerald-400: #6ee7b7;
+  --color-emerald-500: #34d399;
+  --color-emerald-600: #34d399;
+  --color-emerald-700: #6ee7b7;
+
+  --color-amber-50: #451a03;
+  --color-amber-100: #78350f;
+  --color-amber-200: #92400e;
+  --color-amber-500: #fbbf24;
+  --color-amber-600: #fbbf24;
+  --color-amber-700: #fcd34d;
+  --color-amber-800: #fde68a;
+
+  --color-blue-100: #1e3a8a;
+  --color-blue-500: #60a5fa;
+  --color-blue-600: #60a5fa;
+  --color-blue-700: #93c5fd;
+
+  --color-purple-100: #581c87;
+  --color-purple-500: #c084fc;
+  --color-purple-600: #c084fc;
+  --color-purple-700: #d8b4fe;
+
+  --color-cyan-100: #164e63;
+  --color-cyan-500: #22d3ee;
+  --color-cyan-600: #22d3ee;
+
+  --color-pink-100: #831843;
+  --color-pink-500: #f472b6;
+  --color-pink-600: #f472b6;
+
+  --color-teal-100: #134e4a;
+  --color-teal-500: #2dd4bf;
+  --color-teal-600: #2dd4bf;
+
+  --color-slate-500: #94a3b8;
+  --color-slate-600: #94a3b8;
+
+  --color-rose-100: #881337;
+  --color-rose-500: #fb7185;
+  --color-rose-600: #fb7185;
+
+  --color-orange-100: #7c2d12;
+  --color-orange-500: #fb923c;
+  --color-orange-600: #fb923c;
+
+  --color-lime-100: #365314;
+  --color-lime-500: #a3e635;
+  --color-lime-600: #a3e635;
+
+  --color-indigo-100: #312e81;
+  --color-indigo-500: #818cf8;
+  --color-indigo-600: #818cf8;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--color-page);
+  font-family: var(--font-sans);
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Safe-area helpers for Android's status bar / gesture bar. Fallback matches the fixed
+   0.5rem (pt-2) this replaced, so platforms without a safe-area inset (desktop, most
+   browsers) keep the same spacing they always had. */
+.pt-safe {
+  padding-top: env(safe-area-inset-top, 0.5rem);
+}
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0.5rem);
+}
+/* Reserves room at the bottom of scrollable page content for the fixed bottom nav (see
+   Layout.tsx) plus whatever gesture-bar inset the device has, so the last thing on a page
+   (e.g. a page's primary submit button) never ends up hidden underneath the nav. */
+.pb-nav-safe {
+  padding-bottom: calc(8rem + env(safe-area-inset-bottom, 0px));
+}
+.h-safe-top {
+  height: env(safe-area-inset-top, 0px);
+}
+.h-safe-bottom {
+  height: env(safe-area-inset-bottom, 0px);
+}
