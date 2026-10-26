@@ -35,8 +35,25 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 sha2 = "0.10"
+log = "0.4"
 
 # machine-uid has no Android implementation -- see the cfg(target_os = "android") note in
 # src/license.rs. Scoped here so it isn't even compiled into the Android build.
 [target.'cfg(not(target_os = "android"))'.dependencies]
 machine-uid = "0.5"
+
+# mDNS advertisement (see src/sensors.rs) is desktop-only: Android blocks multicast without a
+# foreground service + WifiManager multicast lock, which this pilot doesn't need since the ESP32
+# firmware's setup portal already supports a manual "WashSuite App IP" override that skips mDNS
+# entirely -- see firmware/esp32_sensor_node/esp32_sensor_node.ino.
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+mdns-sd = "0.11"
+
+# Sensor-ingest HTTP server (see src/sensors.rs) -- desktop + Android (only while the app is open
+# and in the foreground; Android has no foreground service keeping the listener alive across
+# backgrounding, which this pilot doesn't need yet). Excluded on iOS, same reasoning as
+# machine-uid above -- not supported there yet.
+[target.'cfg(not(target_os = "ios"))'.dependencies]
+axum = "0.7"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net"] }
+if-addrs = "0.13"

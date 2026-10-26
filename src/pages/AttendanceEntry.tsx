@@ -5,9 +5,10 @@ import { execute, select } from "../lib/db";
 import { useAuth } from "../lib/auth";
 import type { Attendance, Worker } from "../types";
 import { formatTime, isLate } from "./Attendance";
+import { localDate } from "../lib/localDate";
 
 function today() {
-  return new Date().toISOString().slice(0, 10);
+  return localDate(new Date());
 }
 
 function currentTime() {
@@ -83,6 +84,11 @@ export default function AttendanceEntry() {
     setError(null);
     try {
       const hrs = hoursBetween(date, record.time_in, timeOut);
+      if (hrs <= 0) {
+        // shortcut: same-day shifts only; overnight shifts need a next-day time-out, add if a shop needs it.
+        setError("Time out must be after time in (overnight shifts aren't supported).");
+        return;
+      }
       const ot = Math.max(0, hrs - STANDARD_SHIFT_HOURS);
       const ut = Math.max(0, STANDARD_SHIFT_HOURS - hrs);
       await execute(

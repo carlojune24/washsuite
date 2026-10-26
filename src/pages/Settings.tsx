@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { useEffect, useState, type ComponentType } from "react";
 import {
   ChevronRight,
+  Cpu,
   Printer,
   Database,
   Store,
@@ -12,6 +13,12 @@ import {
   LogOut,
   KeyRound,
   BarChart3,
+  WashingMachine,
+  BookOpen,
+  Percent,
+  Clock,
+  Wifi,
+  EyeOff,
 } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeading } from "../components/ListRow";
@@ -26,11 +33,12 @@ import {
   saveLicenseState,
   type LicenseStateRow,
 } from "../lib/license";
+import { sensorServerAvailable } from "../lib/sensors";
 
 interface MenuItem {
   to: string;
   label: string;
-  description: string;
+  description?: string;
   icon: ComponentType<{ size?: number; strokeWidth?: number }>;
 }
 
@@ -41,7 +49,13 @@ const REPORTS_SECTION: MenuItem[] = [
 const APP_SECTIONS: MenuItem[] = [
   { to: "/settings/printer", label: "Printer", description: "Pair and test receipt printer", icon: Printer },
   { to: "/settings/branch", label: "Business Info", description: "Name, TIN, and invoice details for receipts", icon: Store },
+  { to: "/settings/or-series", label: "OR Series", description: "Register BIR receipt series, void spoiled numbers, and view liquidation", icon: BookOpen },
+  { to: "/settings/sc-pwd-discount", label: "SC/PWD Discount", description: "Statutory discount rate for senior citizen & PWD sales (RA 9994 / RA 10754)", icon: Percent },
   { to: "/settings/backup", label: "Backup & data", description: "Export or back up your data", icon: Database },
+];
+
+const PAYROLL_SECTION: MenuItem[] = [
+  { to: "/payroll-settings", label: "Overtime", description: "Overtime pay multiplier (e.g. 1.25×) applied to payroll runs", icon: Clock },
 ];
 
 const ADMIN_SECTIONS: MenuItem[] = [
@@ -50,6 +64,33 @@ const ADMIN_SECTIONS: MenuItem[] = [
 
 export default function Settings() {
   const { currentUser, logout, hasAccess } = useAuth();
+  const [sensorsAvailable, setSensorsAvailable] = useState(false);
+
+  useEffect(() => {
+    sensorServerAvailable().then(setSensorsAvailable);
+  }, []);
+
+  const appSections = [
+    ...APP_SECTIONS,
+    ...(sensorsAvailable
+      ? [
+          { to: "/settings/machine-status", label: "Machine Status", description: "Live running/idle status and loads today per machine", icon: WashingMachine },
+          { to: "/settings/machines", label: "Machines & Sensors", description: "Register ESP32 light sensors to washers and dryers", icon: Cpu },
+        ]
+      : []),
+    ...(currentUser?.role === "owner"
+      ? [
+          { to: "/settings/audit-view", label: "Others", icon: EyeOff },
+          {
+            to: "/settings/online-monitoring",
+            label: "Online Monitoring",
+            description: "Let the owner check sales, cashflow, attendance & machines remotely",
+            icon: Wifi,
+          },
+        ]
+      : []),
+  ];
+
   return (
     <div>
       <PageHeading title="Settings" />
@@ -58,7 +99,8 @@ export default function Settings() {
       {currentUser?.role === "owner" && <MenuGroup title="Admin" items={ADMIN_SECTIONS} />}
       {currentUser?.role === "owner" && <LicenseSection />}
       {hasAccess("reports") && <MenuGroup title="Reports" items={REPORTS_SECTION} />}
-      <MenuGroup title="App" items={APP_SECTIONS} />
+      {hasAccess("payroll") && <MenuGroup title="Payroll" items={PAYROLL_SECTION} />}
+      <MenuGroup title="App" items={appSections} />
 
       <div className="mb-4">
         <p className="mb-1.5 px-1 text-xs font-semibold tracking-wide text-ink/40 uppercase">Account</p>
@@ -263,7 +305,7 @@ function MenuRow({ item }: { item: MenuItem }) {
       </span>
       <div className="min-w-0 flex-1">
         <p className="text-sm font-semibold text-ink">{item.label}</p>
-        <p className="truncate text-xs text-ink/50">{item.description}</p>
+        {item.description && <p className="truncate text-xs text-ink/50">{item.description}</p>}
       </div>
       <ChevronRight size={16} className="shrink-0 text-ink/25" />
     </Link>

@@ -4,6 +4,7 @@ import { ChevronLeft, MapPin, Phone, Pencil, Receipt, Star, Gift, TrendingUp } f
 import { select, formatDateTime } from "../lib/db";
 import type { Customer, Order, LoyaltyTier } from "../types";
 import ListRow, { EmptyState } from "../components/ListRow";
+import { localDate } from "../lib/localDate";
 
 const STATUS_LABEL: Record<Order["status"], string> = {
   pending: "Pending",
@@ -55,9 +56,9 @@ export default function CustomerDetail() {
       const diffToMonday = day === 0 ? 6 : day - 1;
       const monday = new Date(now);
       monday.setDate(now.getDate() - diffToMonday);
-      cutoff = monday.toISOString().slice(0, 10);
+      cutoff = localDate(monday);
     } else if (activityPeriod === "month") {
-      cutoff = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+      cutoff = localDate(new Date(now.getFullYear(), now.getMonth(), 1));
     }
     const inPeriod = cutoff ? orders.filter((o) => o.drop_off_at.slice(0, 10) >= cutoff!) : orders;
     return {

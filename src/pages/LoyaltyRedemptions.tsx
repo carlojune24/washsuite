@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { ChevronLeft, Gift, Search, Coins, Ticket, Users } from "lucide-react";
 import { select, formatDateTime } from "../lib/db";
 import { EmptyState } from "../components/ListRow";
+import { localDate } from "../lib/localDate";
 
 type PeriodFilter = "today" | "week" | "month" | "custom";
 
@@ -18,7 +19,7 @@ interface RedemptionRow {
 }
 
 function toISODate(d: Date) {
-  return d.toISOString().slice(0, 10);
+  return localDate(d);
 }
 
 function periodRange(period: PeriodFilter, customFrom: string, customTo: string): { from: string; to: string } | null {

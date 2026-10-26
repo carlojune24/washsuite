@@ -17,12 +17,16 @@ import {
   Check,
   Star,
   Tag,
+  IdCard,
 } from "lucide-react";
 import { execute, select, toEntryTimestamp } from "../lib/db";
-import { listPairedPrinters, printReceipt, printInvoice } from "../lib/printer";
+import { listPairedPrinters, printReceipt, printInvoice, printLoadTags, resolveSelectedPrinter } from "../lib/printer";
 import { getOrAssignInvoiceNumber, formatInvoiceNumber } from "../lib/invoice";
+import { getOrderInvoiceSeries } from "../lib/orSeries";
+import { getOrAssignLoadTags } from "../lib/loadTags";
 import { generateInvoicePdf } from "../lib/invoiceReport";
 import { buildReceiptLines } from "../lib/receiptLines";
+import { computeScPwdPricing, computeVatBreakdown } from "../lib/vat";
 import { retailPrice as computeRetailPrice } from "../lib/pricing";
 import { doseFallbackLabel } from "../lib/dose";
 import { useAuth } from "../lib/auth";
@@ -37,7 +41,10 @@ import type {
   Branch,
   LoyaltySettings,
   Promo,
+  LoadTag,
+  VatStatus,
 } from "../types";
+import { localDate } from "../lib/localDate";
 
 interface ItemRow extends InventoryItem {
   current_cost: number | null;
@@ -70,7 +77,7 @@ interface CatalogEntry {
 }
 
 function today() {
-  return new Date().toISOString().slice(0, 10);
+  return localDate(new Date());
 }
 
 const KIND_ICON: Record<CatalogKind, typeof WashingMachine> = {
@@ -163,6 +170,13 @@ export default function OrderForm() {
   const [appliedPromo, setAppliedPromo] = useState<Promo | null>(null);
   const [dismissedPromoIds, setDismissedPromoIds] = useState<Set<number>>(new Set());
 
+  // SC/PWD statutory discount cannot stack with promo/loyalty discounts (BIR rule) and forces
+  // the sale VAT-exempt -- see toggleScPwd() and src/lib/vat.ts's computeScPwdPricing.
+  const [scPwdApplied, setScPwdApplied] = useState(false);
+  const [scPwdIdNo, setScPwdIdNo] = useState("");
+  const [scPwdName, setScPwdName] = useState("");
+  const [manualVatStatus, setManualVatStatus] = useState<VatStatus>("vatable");
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -175,6 +189,9 @@ export default function OrderForm() {
   const [printError, setPrintError] = useState<string | null>(null);
   const [invoicing, setInvoicing] = useState<"pdf" | "thermal" | null>(null);
   const [invoiceError, setInvoiceError] = useState<string | null>(null);
+  const [savedLoadTags, setSavedLoadTags] = useState<LoadTag[]>([]);
+  const [loadTagsPrinting, setLoadTagsPrinting] = useState(false);
+  const [loadTagsError, setLoadTagsError] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -286,12 +303,37 @@ export default function OrderForm() {
     return selectedAddOnIds.has(entry.id);
   }
 
+  // Per-kg / per-load services default their quantity to the order's Kg / Number-of-loads field so
+  // the price follows what staff already typed; the stepper still overrides it afterward.
+  function unitQty(unit: string | null): number {
+    const u = (unit ?? "").trim().toLowerCase();
+    const n = Number(u === "kg" ? kg : u === "load" || u === "loads" ? loads : 0);
+    return n > 0 ? n : 1;
+  }
+
+  // Each field re-syncs only the services of its own unit, so editing loads can't clobber a manual
+  // kg-service quantity (and vice versa).
+  function syncUnit(unitName: string[]) {
+    setServiceLines((prev) => {
+      const next = { ...prev };
+      for (const sv of services) {
+        if (sv.id in next && unitName.includes((sv.unit ?? "").trim().toLowerCase())) next[sv.id] = unitQty(sv.unit);
+      }
+      return next;
+    });
+  }
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => syncUnit(["kg"]), [kg]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => syncUnit(["load", "loads"]), [loads]);
+
   function toggleEntry(entry: CatalogEntry) {
     if (entry.kind === "service") {
       setServiceLines((prev) => {
         const next = { ...prev };
         if (entry.id in next) delete next[entry.id];
-        else next[entry.id] = 1;
+        else next[entry.id] = unitQty(entry.unit);
         return next;
       });
     } else if (entry.kind === "item") {
@@ -320,7 +362,9 @@ export default function OrderForm() {
     selectedServices.reduce((sum, s) => sum + s.price * serviceLines[s.id], 0) +
     selectedItems.reduce((sum, it) => sum + retailPrice(it) * itemLines[it.id], 0) +
     selectedAddOnsList.reduce((sum, a) => sum + a.price, 0);
-  const packagePrice = selectedPackage?.price ?? 0;
+  // Package price is per load; an empty loads field counts as a single load.
+  const packageLoads = Math.max(1, Math.floor(Number(loads)) || 0);
+  const packagePrice = (selectedPackage?.price ?? 0) * packageLoads;
   const total = packagePrice + extrasTotal;
 
   // Points redemption: capped by both what the customer actually has available (earned minus
@@ -331,16 +375,36 @@ export default function OrderForm() {
     ? Math.floor((total * (loyaltySettings.max_redemption_percent / 100)) / (loyaltySettings.redeem_value_per_point || 1))
     : 0;
   const maxRedeemable = Math.max(0, Math.min(availablePoints, maxRedeemableByPercent));
-  const pointsToRedeem = Math.max(0, Math.min(Number(pointsToRedeemInput) || 0, maxRedeemable));
-  const loyaltyDiscount = loyaltySettings ? pointsToRedeem * loyaltySettings.redeem_value_per_point : 0;
-  const promoDiscount = appliedPromo
-    ? appliedPromo.discount_type === "percent"
-      ? total * (appliedPromo.discount_value / 100)
-      : Math.min(appliedPromo.discount_value, total)
-    : 0;
-  const discountValue = loyaltyDiscount + promoDiscount;
-  const grandTotal = Math.max(0, total - discountValue);
+  // BIR SC/PWD rule: statutory discount can't stack with promo/loyalty discounts on the same
+  // order, so both are zeroed out here while it's applied (see toggleScPwd for the UI side).
+  const pointsToRedeem = scPwdApplied ? 0 : Math.max(0, Math.min(Number(pointsToRedeemInput) || 0, maxRedeemable));
+  const loyaltyDiscount = !scPwdApplied && loyaltySettings ? pointsToRedeem * loyaltySettings.redeem_value_per_point : 0;
+  const promoDiscount =
+    !scPwdApplied && appliedPromo
+      ? appliedPromo.discount_type === "percent"
+        ? total * (appliedPromo.discount_value / 100)
+        : Math.min(appliedPromo.discount_value, total)
+      : 0;
+  const scPwdPricing = scPwdApplied
+    ? computeScPwdPricing(total, !!branch?.vat_registered, branch?.sc_pwd_discount_percent ?? 20)
+    : null;
+  const scPwdDiscount = scPwdPricing?.scPwdDiscount ?? 0;
+  const discountValue = scPwdApplied ? scPwdDiscount : loyaltyDiscount + promoDiscount;
+  const grandTotal = scPwdApplied ? Math.max(0, scPwdPricing!.netTotal) : Math.max(0, total - discountValue);
   const totalAfterPromo = Math.max(0, total - promoDiscount);
+  const orderVatStatus: VatStatus = scPwdApplied ? "vat_exempt" : manualVatStatus;
+
+  function toggleScPwd() {
+    setScPwdApplied((prev) => {
+      const next = !prev;
+      if (next) {
+        // Non-stacking: dropping any promo/points already picked before SC/PWD was toggled on.
+        setAppliedPromo(null);
+        setPointsToRedeemInput("");
+      }
+      return next;
+    });
+  }
 
   // Combines package-included items and directly-added items into one required-quantity map,
   // then flags any item where stock on hand can't cover it — checked both before opening the
@@ -349,7 +413,7 @@ export default function OrderForm() {
     const required: Record<number, number> = {};
     if (selectedPackageId) {
       for (const pi of packageItems) {
-        required[pi.item_id] = (required[pi.item_id] ?? 0) + pi.quantity;
+        required[pi.item_id] = (required[pi.item_id] ?? 0) + pi.quantity * packageLoads;
       }
     }
     for (const it of selectedItems) {
@@ -412,6 +476,10 @@ export default function OrderForm() {
       setError("Pick a package or add at least one service, item, or add-on.");
       return;
     }
+    if (selectedPackageId && !(Number(loads) >= 1)) {
+      setError("Enter the number of loads — the package price is charged per load.");
+      return;
+    }
     const shortages = stockShortages();
     if (shortages.length > 0) {
       setError(`Not enough stock — ${shortages.join(", ")}.`);
@@ -427,6 +495,10 @@ export default function OrderForm() {
       setError(`Not enough stock — ${shortages.join(", ")}.`);
       return;
     }
+    if (scPwdApplied && !scPwdIdNo.trim()) {
+      setError("Enter the SC/PWD ID number, or turn off the SC/PWD discount.");
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -440,9 +512,13 @@ export default function OrderForm() {
       const appliedAmount = Math.min(amountPaid, grandTotal);
 
       const orderRes = await execute(
-        `INSERT INTO orders (customer_id, order_number, subtotal, discount_total, grand_total, amount_paid, payment_status, kg, loads, package_id, promo_id, created_by, drop_off_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO orders (
+           branch_id, customer_id, order_number, subtotal, discount_total, grand_total, amount_paid, payment_status,
+           kg, loads, package_id, package_loads, promo_id, created_by, drop_off_at,
+           vat_status, sc_pwd_id_no, sc_pwd_name, sc_pwd_discount_amount
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
+          currentUser?.branch_id ?? 1,
           customerId,
           orderNumber,
           total,
@@ -453,9 +529,14 @@ export default function OrderForm() {
           kg ? Number(kg) : null,
           loads ? Number(loads) : null,
           selectedPackageId,
+          selectedPackageId ? packageLoads : null,
           appliedPromo?.id ?? null,
           currentUser?.id ?? null,
           toEntryTimestamp(orderDate),
+          orderVatStatus,
+          scPwdApplied ? scPwdIdNo.trim() || null : null,
+          scPwdApplied ? scPwdName.trim() || null : null,
+          scPwdDiscount,
         ],
       );
       const orderId = Number(orderRes.lastInsertId);
@@ -481,14 +562,14 @@ export default function OrderForm() {
         for (const pi of packageItems) {
           await execute(
             `INSERT INTO order_items (order_id, item_id, description, quantity, unit_price, line_total) VALUES (?, ?, ?, ?, 0, 0)`,
-            [orderId, pi.item_id, pi.name, pi.quantity],
+            [orderId, pi.item_id, pi.name, pi.quantity * packageLoads],
           );
-          await consumeStock(pi.item_id, pi.branch_id, pi.quantity, orderId, orderNumber);
+          await consumeStock(pi.item_id, pi.branch_id, pi.quantity * packageLoads, orderId, orderNumber);
         }
         for (const ps of packageServices) {
           await execute(
             `INSERT INTO order_items (order_id, service_type_id, description, quantity, unit_price, line_total) VALUES (?, ?, ?, ?, 0, 0)`,
-            [orderId, ps.service_type_id, ps.name, ps.quantity],
+            [orderId, ps.service_type_id, ps.name, ps.quantity * packageLoads],
           );
         }
       }
@@ -517,10 +598,11 @@ export default function OrderForm() {
       }
 
       if (appliedAmount > 0) {
-        await execute("INSERT INTO payments (order_id, amount, method) VALUES (?, ?, ?)", [
+        await execute("INSERT INTO payments (order_id, amount, method, received_by) VALUES (?, ?, ?, ?)", [
           orderId,
           appliedAmount,
           paymentMethod,
+          currentUser?.id ?? null,
         ]);
       }
 
@@ -556,18 +638,59 @@ export default function OrderForm() {
         select<Order>("SELECT * FROM orders WHERE id = ?", [orderId]),
         select<OrderItem>("SELECT * FROM order_items WHERE order_id = ?", [orderId]),
       ]);
-      setSavedOrder(orderRows[0] ?? null);
+      const savedOrderRow = orderRows[0] ?? null;
+      setSavedOrder(savedOrderRow);
       setSavedItems(itemRows);
+      let customerRow: Customer | null = null;
       if (customerId != null) {
-        const [customerRow] = await select<Customer>("SELECT * FROM customers WHERE id = ?", [customerId]);
-        setSavedCustomer(customerRow ?? null);
-      } else {
-        setSavedCustomer(null);
+        const [row] = await select<Customer>("SELECT * FROM customers WHERE id = ?", [customerId]);
+        customerRow = row ?? null;
+      }
+      setSavedCustomer(customerRow);
+
+      // Print load tags right away — the order's already saved at this point, so a printer
+      // hiccup here shouldn't surface as an order-creation failure (see the dialog's own
+      // error/reprint affordance for that case).
+      if (savedOrderRow) {
+        await printLoadTagsForOrder(savedOrderRow, itemRows, customerRow);
       }
     } catch (err) {
       setError(String(err));
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function printLoadTagsForOrder(order: Order, items: OrderItem[], customer: Customer | null) {
+    const loadCount = order.loads ?? 0;
+    if (loadCount <= 0) return;
+    setLoadTagsPrinting(true);
+    setLoadTagsError(null);
+    try {
+      const tags = await getOrAssignLoadTags(order.id, loadCount, orderDate);
+      setSavedLoadTags(tags);
+      const printers = await listPairedPrinters();
+      const printer = resolveSelectedPrinter(printers);
+      if (!printer) {
+        setLoadTagsError(
+          printers && printers.length > 1
+            ? "Multiple printers paired — select one in Printer Settings, then reprint below."
+            : "No paired printer found — load tags weren't printed. Pair one in Bluetooth settings, then reprint below.",
+        );
+        return;
+      }
+      await printLoadTags(printer, {
+        businessName: "WashSuite",
+        order,
+        items,
+        customer,
+        pkg: selectedPackage,
+        tags,
+      });
+    } catch (err) {
+      setLoadTagsError(String(err));
+    } finally {
+      setLoadTagsPrinting(false);
     }
   }
 
@@ -577,11 +700,16 @@ export default function OrderForm() {
     setPrintError(null);
     try {
       const printers = await listPairedPrinters();
-      if (!printers || printers.length === 0) {
-        setPrintError("No paired printer found. Pair one in your device's Bluetooth settings.");
+      const printer = resolveSelectedPrinter(printers);
+      if (!printer) {
+        setPrintError(
+          printers && printers.length > 1
+            ? "Multiple printers paired — select one in Printer Settings."
+            : "No paired printer found. Pair one in your device's Bluetooth settings.",
+        );
         return;
       }
-      await printReceipt(printers[0].identifier, {
+      await printReceipt(printer, {
         businessName: "WashSuite",
         branchName: branch?.name,
         order: savedOrder,
@@ -602,26 +730,29 @@ export default function OrderForm() {
     setInvoiceError(null);
     try {
       const invoiceNumber = await getOrAssignInvoiceNumber(savedOrder.id);
+      const invoiceSeries = await getOrderInvoiceSeries(savedOrder.id);
+      const orSeriesLabel = invoiceSeries
+        ? `${formatInvoiceNumber(invoiceSeries.seriesStart)}-${formatInvoiceNumber(invoiceSeries.seriesEnd)}`
+        : null;
       generateInvoicePdf({
         businessName: branch.name,
         businessAddress: branch.address,
         businessTin: branch.tin,
         businessContact: branch.phone,
-        birPermitNo: branch.bir_permit_no,
-        orSeriesLabel:
-          branch.or_series_start && branch.or_series_end
-            ? `${String(branch.or_series_start).padStart(5, "0")}-${String(branch.or_series_end).padStart(5, "0")}`
-            : null,
-        vatRegistered: !!branch.vat_registered,
+        birPermitNo: invoiceSeries?.permitNo ?? branch.bir_permit_no,
+        orSeriesLabel,
         invoiceNumber,
         orderNumber: savedOrder.order_number,
         dateLabel: new Date(savedOrder.drop_off_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }),
         customerName: savedCustomer?.full_name ?? "Walk-in",
         customerTin: savedCustomer?.tin ?? null,
         customerAddress: savedCustomer?.address ?? null,
-        items: buildReceiptLines(savedItems, selectedPackage),
-        grandTotal: savedOrder.grand_total,
-        discount: savedOrder.discount_total,
+        items: buildReceiptLines(savedItems, selectedPackage, savedOrder.package_loads),
+        vat: computeVatBreakdown(savedOrder, branch),
+        scPwd:
+          savedOrder.sc_pwd_discount_amount > 0
+            ? { idNo: savedOrder.sc_pwd_id_no, name: savedOrder.sc_pwd_name, discountAmount: savedOrder.sc_pwd_discount_amount }
+            : null,
         paymentMethodLabel: paymentMethod === "cash" ? "Cash" : "GCash",
         referenceNo: null,
         terms: branch.invoice_terms,
@@ -640,18 +771,28 @@ export default function OrderForm() {
     setInvoiceError(null);
     try {
       const printers = await listPairedPrinters();
-      if (!printers || printers.length === 0) {
-        setInvoiceError("No paired printer found. Pair one in your device's Bluetooth settings.");
+      const printer = resolveSelectedPrinter(printers);
+      if (!printer) {
+        setInvoiceError(
+          printers && printers.length > 1
+            ? "Multiple printers paired — select one in Printer Settings."
+            : "No paired printer found. Pair one in your device's Bluetooth settings.",
+        );
         return;
       }
       const invoiceNumber = await getOrAssignInvoiceNumber(savedOrder.id);
-      await printInvoice(printers[0].identifier, {
+      const invoiceSeries = await getOrderInvoiceSeries(savedOrder.id);
+      await printInvoice(printer, {
         branch,
         order: savedOrder,
         items: savedItems,
         customer: savedCustomer,
         pkg: selectedPackage,
         invoiceNumber,
+        orSeriesLabel: invoiceSeries
+          ? `${formatInvoiceNumber(invoiceSeries.seriesStart)}-${formatInvoiceNumber(invoiceSeries.seriesEnd)}`
+          : null,
+        birPermitNo: invoiceSeries?.permitNo ?? branch.bir_permit_no,
         paymentMethodLabel: paymentMethod === "cash" ? "Cash" : "GCash",
         referenceNo: null,
       });
@@ -805,9 +946,14 @@ export default function OrderForm() {
                 );
               })}
             </div>
+            {selectedPackage && (
+              <p className="mt-2 px-1 text-xs font-medium text-brand-500">
+                ₱{selectedPackage.price.toFixed(2)} × {packageLoads} load{packageLoads === 1 ? "" : "s"} = ₱{packagePrice.toFixed(2)}
+              </p>
+            )}
             {selectedPackage && (packageItems.length > 0 || packageServices.length > 0) && (
               <p className="mt-2 px-1 text-xs text-ink/50">
-                <span className="text-ink/40">Includes: </span>
+                <span className="text-ink/40">Includes (per load): </span>
                 {[...packageServices.map((s) => `${s.name} × ${s.quantity} ${s.unit}`), ...packageItems.map((it) => `${it.name} × ${it.quantity} ${it.unit}`)].join(
                   ", ",
                 )}
@@ -1008,7 +1154,7 @@ export default function OrderForm() {
           )}
           {selectedPackage && extrasTotal > 0 && (
             <p className="mt-1 text-xs text-white/70">
-              {selectedPackage.name} (₱{packagePrice.toFixed(2)}) + ₱{extrasTotal.toFixed(2)} extras
+              {selectedPackage.name} ({packageLoads > 1 ? `${packageLoads} loads, ` : ""}₱{packagePrice.toFixed(2)}) +₱{extrasTotal.toFixed(2)} extras
             </p>
           )}
         </div>
@@ -1048,18 +1194,48 @@ export default function OrderForm() {
                   </p>
                 </div>
 
+                {(savedOrder.loads ?? 0) > 0 && (
+                  <div className="mb-3 rounded-2xl bg-surface p-3.5 shadow-sm">
+                    <p className="text-xs font-medium text-ink/50">Load tags</p>
+                    {loadTagsPrinting ? (
+                      <p className="mt-1 text-sm text-ink/60">Printing tags…</p>
+                    ) : savedLoadTags.length > 0 ? (
+                      <p className="mt-1 text-sm text-ink">
+                        #{savedLoadTags[0].daily_number}
+                        {savedLoadTags.length > 1 && `–#${savedLoadTags[savedLoadTags.length - 1].daily_number}`}
+                        {" "}
+                        <span className="text-ink/40">
+                          ({savedLoadTags.length} load{savedLoadTags.length === 1 ? "" : "s"})
+                        </span>
+                      </p>
+                    ) : null}
+                    {loadTagsError && <p className="mt-1 text-sm text-red-600">{loadTagsError}</p>}
+                    <button
+                      type="button"
+                      onClick={() => printLoadTagsForOrder(savedOrder, savedItems, savedCustomer)}
+                      disabled={loadTagsPrinting}
+                      className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-xl border border-brand-500/30 py-2 text-xs font-semibold text-brand-500 disabled:opacity-60"
+                    >
+                      <Tag size={13} strokeWidth={2.2} />
+                      {savedLoadTags.length > 0 ? "Reprint load tags" : "Print load tags"}
+                    </button>
+                  </div>
+                )}
+
                 {printError && <p className="mb-3 text-sm text-red-600">{printError}</p>}
 
                 <div className="mb-2 flex gap-2">
-                  <button
-                    type="button"
-                    onClick={handlePrint}
-                    disabled={printing}
-                    className="flex flex-1 items-center justify-center gap-1.5 rounded-2xl bg-surface py-3 text-sm font-semibold text-ink shadow-sm disabled:opacity-60"
-                  >
-                    <Printer size={16} strokeWidth={2.2} />
-                    {printing ? "Printing…" : "Print receipt"}
-                  </button>
+                  {!branch?.hide_print_receipt && (
+                    <button
+                      type="button"
+                      onClick={handlePrint}
+                      disabled={printing}
+                      className="flex flex-1 items-center justify-center gap-1.5 rounded-2xl bg-surface py-3 text-sm font-semibold text-ink shadow-sm disabled:opacity-60"
+                    >
+                      <Printer size={16} strokeWidth={2.2} />
+                      {printing ? "Printing…" : "Print receipt"}
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={closeDialog}
@@ -1205,6 +1381,64 @@ export default function OrderForm() {
                   </div>
                 )}
 
+                <div className="mb-3 rounded-2xl bg-surface p-3.5 shadow-sm">
+                  <button
+                    type="button"
+                    onClick={toggleScPwd}
+                    className="flex w-full items-center justify-between"
+                  >
+                    <span className="flex items-center gap-1.5 text-xs font-medium text-ink/50">
+                      <IdCard size={13} strokeWidth={2.4} className="text-brand-500" />
+                      Senior Citizen / PWD discount
+                    </span>
+                    <span
+                      className={
+                        "flex h-5 w-9 shrink-0 items-center rounded-full px-0.5 transition-colors " +
+                        (scPwdApplied ? "justify-end bg-brand-500" : "justify-start bg-ink/15")
+                      }
+                    >
+                      <span className="h-4 w-4 rounded-full bg-white shadow-sm" />
+                    </span>
+                  </button>
+                  {scPwdApplied ? (
+                    <div className="mt-2.5 space-y-2">
+                      <input
+                        value={scPwdIdNo}
+                        onChange={(e) => setScPwdIdNo(e.target.value)}
+                        placeholder="SC/PWD ID number"
+                        className="w-full rounded-xl bg-surface-muted px-3.5 py-2.5 text-sm font-medium text-ink outline-none placeholder:text-ink/30"
+                      />
+                      <input
+                        value={scPwdName}
+                        onChange={(e) => setScPwdName(e.target.value)}
+                        placeholder="Name on ID"
+                        className="w-full rounded-xl bg-surface-muted px-3.5 py-2.5 text-sm font-medium text-ink outline-none placeholder:text-ink/30"
+                      />
+                      <p className="text-xs font-semibold text-emerald-600">
+                        -₱{scPwdDiscount.toFixed(2)} off this order · VAT-exempt · replaces promo/points discounts
+                      </p>
+                    </div>
+                  ) : (
+                    !!branch?.vat_registered && (
+                      <div className="mt-2.5 flex gap-1.5">
+                        {(["vatable", "vat_exempt", "zero_rated"] as VatStatus[]).map((status) => (
+                          <button
+                            key={status}
+                            type="button"
+                            onClick={() => setManualVatStatus(status)}
+                            className={
+                              "flex-1 rounded-xl py-1.5 text-[11px] font-semibold " +
+                              (manualVatStatus === status ? "bg-brand-500 text-white" : "bg-surface-muted text-ink/50")
+                            }
+                          >
+                            {status === "vatable" ? "Vatable" : status === "vat_exempt" ? "VAT-exempt" : "Zero-rated"}
+                          </button>
+                        ))}
+                      </div>
+                    )
+                  )}
+                </div>
+
                 <div className="mb-3 rounded-2xl bg-gradient-to-br from-brand-600 to-brand-500 p-4 text-white shadow-sm">
                   {discountValue > 0 ? (
                     <>
@@ -1222,6 +1456,12 @@ export default function OrderForm() {
                         <div className="flex items-center justify-between text-xs text-white/70">
                           <span>Points discount</span>
                           <span>-₱{loyaltyDiscount.toFixed(2)}</span>
+                        </div>
+                      )}
+                      {scPwdDiscount > 0 && (
+                        <div className="flex items-center justify-between text-xs text-white/70">
+                          <span>SC/PWD discount</span>
+                          <span>-₱{scPwdDiscount.toFixed(2)}</span>
                         </div>
                       )}
                       <div className="mt-1 flex items-center justify-between border-t border-white/20 pt-1">
@@ -1304,15 +1544,27 @@ export default function OrderForm() {
                         ))}
                     </div>
                   ) : (
-                    <label className="mt-3 flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={amountPaid >= grandTotal && grandTotal > 0}
-                        onChange={(e) => setAmountPaidInput(e.target.checked ? String(grandTotal) : "")}
-                        className="h-4 w-4 accent-brand-500"
-                      />
-                      <span className="text-sm font-medium text-ink">Paid via GCash</span>
-                    </label>
+                    <div className="mt-3">
+                      {branch?.gcash_qr_image && (
+                        <div className="mb-3 flex flex-col items-center rounded-xl bg-surface-muted p-3">
+                          <img
+                            src={branch.gcash_qr_image}
+                            alt="GCash QR code"
+                            className="h-40 w-40 rounded-lg bg-white object-contain"
+                          />
+                          <span className="mt-2 text-xs font-medium text-ink/50">Scan to pay via GCash</span>
+                        </div>
+                      )}
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={amountPaid >= grandTotal && grandTotal > 0}
+                          onChange={(e) => setAmountPaidInput(e.target.checked ? String(grandTotal) : "")}
+                          className="h-4 w-4 accent-brand-500"
+                        />
+                        <span className="text-sm font-medium text-ink">Paid via GCash</span>
+                      </label>
+                    </div>
                   )}
                 </div>
 

@@ -20,6 +20,7 @@ export const PAGE_MODULES = [
   { key: "promos", label: "Promos" },
   { key: "expenses", label: "Expenses" },
   { key: "cashflow", label: "Cashflow" },
+  { key: "adjustment_rollback", label: "Cashflow – Rollback Adjustment" },
   { key: "attendance", label: "Attendance" },
   { key: "attendance_clockout", label: "Attendance – Clock Out" },
   { key: "cash_advances", label: "Cash Advances" },

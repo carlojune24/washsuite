@@ -4,6 +4,7 @@ import { Plus, HandCoins, Wallet, CheckCircle2, BarChart3 } from "lucide-react";
 import { select } from "../lib/db";
 import type { CashAdvance } from "../types";
 import { EmptyState, PageHeading } from "../components/ListRow";
+import { localDate } from "../lib/localDate";
 
 type PeriodFilter = "today" | "week" | "month" | "custom";
 
@@ -12,7 +13,7 @@ interface CashAdvanceRow extends CashAdvance {
 }
 
 function toISODate(d: Date) {
-  return d.toISOString().slice(0, 10);
+  return localDate(d);
 }
 
 function periodRange(period: PeriodFilter, customFrom: string, customTo: string): { from: string; to: string } | null {

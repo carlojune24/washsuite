@@ -22,7 +22,7 @@ export default function ReportTopCustomers() {
 
   useEffect(() => {
     const range = periodRange(period, customFrom, customTo);
-    const conditions: string[] = ["o.customer_id IS NOT NULL"];
+    const conditions: string[] = ["o.customer_id IS NOT NULL", "o.status != 'cancelled'"];
     const params: unknown[] = [];
     if (range) {
       conditions.push("substr(o.drop_off_at,1,10) >= ?", "substr(o.drop_off_at,1,10) <= ?");

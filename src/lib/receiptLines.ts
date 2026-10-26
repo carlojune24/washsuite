@@ -14,10 +14,12 @@ export interface ReceiptLine {
  * was actually sold. Here the package itself becomes the line instead, and only real extras
  * added on top of the package (non-zero priced order_items) still show individually.
  */
-export function buildReceiptLines(items: OrderItem[], pkg: ServicePackage | null): ReceiptLine[] {
+export function buildReceiptLines(items: OrderItem[], pkg: ServicePackage | null, loads?: number | null): ReceiptLine[] {
   const lines: ReceiptLine[] = [];
   if (pkg) {
-    lines.push({ description: `${pkg.name} (package)`, quantity: 1, amount: pkg.price });
+    // Package price is per load, so the package line's quantity is the order's load count.
+    const qty = Math.max(1, loads ?? 1);
+    lines.push({ description: `${pkg.name} (package)`, quantity: qty, amount: pkg.price * qty });
   }
   for (const it of items) {
     if (pkg && it.unit_price === 0 && it.line_total === 0) continue;

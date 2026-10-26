@@ -3,8 +3,9 @@ import { Link, useSearchParams } from "react-router-dom";
 import { Users, CheckCircle2, Clock, XCircle, Search } from "lucide-react";
 import { select } from "../lib/db";
 import { EmptyState, PageHeading } from "../components/ListRow";
+import { localDate } from "../lib/localDate";
 
-interface RosterRow {
+export interface RosterRow {
   worker_id: number;
   full_name: string;
   position: string | null;
@@ -19,7 +20,7 @@ interface RosterRow {
 type StatusFilter = "all" | "present" | "late" | "absent" | "leave";
 
 function today() {
-  return new Date().toISOString().slice(0, 10);
+  return localDate(new Date());
 }
 
 export function formatTime(t: string) {
@@ -37,7 +38,7 @@ export function isLate(r: { status: string | null; time_in: string | null }) {
   return r.status === "present" && !!r.time_in && r.time_in > LATE_CUTOFF;
 }
 
-function effectiveStatus(r: RosterRow): "present" | "late" | "absent" | "leave" | "half_day" | "not_clocked_in" {
+export function effectiveStatus(r: RosterRow): "present" | "late" | "absent" | "leave" | "half_day" | "not_clocked_in" {
   if (r.status === "absent") return "absent";
   if (r.status === "leave") return "leave";
   if (r.status === "half_day") return "half_day";

@@ -17,12 +17,20 @@ interface LineRow {
   item_unit: string;
 }
 
+interface OtherLineRow {
+  id: number;
+  description: string;
+  amount: number;
+  category_name: string | null;
+}
+
 export default function InventoryPurchaseDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { hasAccess } = useAuth();
   const [purchase, setPurchase] = useState<InventoryPurchase | null>(null);
   const [lines, setLines] = useState<LineRow[]>([]);
+  const [otherLines, setOtherLines] = useState<OtherLineRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [rollingBack, setRollingBack] = useState(false);
 
@@ -38,9 +46,18 @@ export default function InventoryPurchaseDetail() {
          ORDER BY i.name`,
         [id],
       ),
-    ]).then(([[p], m]) => {
+      select<OtherLineRow>(
+        `SELECT e.id, e.description, e.amount, c.name AS category_name
+         FROM expenses e
+         LEFT JOIN expense_categories c ON c.id = e.category_id
+         WHERE e.purchase_id = ?
+         ORDER BY e.id`,
+        [id],
+      ),
+    ]).then(([[p], m, o]) => {
       setPurchase(p ?? null);
       setLines(m);
+      setOtherLines(o);
       setLoading(false);
     });
   }, [id]);
@@ -53,7 +70,9 @@ export default function InventoryPurchaseDetail() {
     return <p className="py-10 text-center text-sm text-ink/40">Restock not found.</p>;
   }
 
-  const total = lines.reduce((sum, l) => sum + l.quantity * (l.unit_price ?? 0), 0);
+  const itemsTotal = lines.reduce((sum, l) => sum + l.quantity * (l.unit_price ?? 0), 0);
+  const otherTotal = otherLines.reduce((sum, l) => sum + l.amount, 0);
+  const total = itemsTotal + otherTotal;
   // Only safe to undo if nothing from any batch in this restock has been drawn on yet —
   // deleting a batch that's already been (partially) consumed would leave usage movements
   // pointing at a batch that no longer exists, and would double-subtract stock that's already
@@ -94,12 +113,13 @@ export default function InventoryPurchaseDetail() {
   return (
     <div>
       <div className="sticky top-0 z-10 mb-4 flex items-center gap-2 bg-page pb-2">
-        <Link
-          to="/inventory/purchases"
+        <button
+          type="button"
+          onClick={() => navigate(-1)}
           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface text-ink shadow-sm"
         >
           <ChevronLeft size={18} strokeWidth={2.2} />
-        </Link>
+        </button>
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-xl font-semibold text-ink">{purchase.supplier || "Restock"}</h1>
           <p className="truncate text-xs text-ink/50">{purchase.purchase_date}</p>
@@ -138,7 +158,10 @@ export default function InventoryPurchaseDetail() {
 
       <p className="mb-2 px-1 text-xs font-semibold tracking-wide text-ink/40 uppercase">Items</p>
 
-      {lines.length === 0 && <EmptyState text="No items on this restock." />}
+      {lines.length === 0 && otherLines.length === 0 && <EmptyState text="No items on this restock." />}
+      {lines.length === 0 && otherLines.length > 0 && (
+        <p className="px-1 text-xs text-ink/30">No inventory items — see other costs below.</p>
+      )}
 
       <div className="space-y-1.5">
         {lines.map((l) => (
@@ -155,6 +178,23 @@ export default function InventoryPurchaseDetail() {
           </div>
         ))}
       </div>
+
+      {otherLines.length > 0 && (
+        <>
+          <p className="mt-4 mb-2 px-1 text-xs font-semibold tracking-wide text-ink/40 uppercase">Other costs</p>
+          <div className="space-y-1.5">
+            {otherLines.map((l) => (
+              <div key={l.id} className="flex items-center gap-3 rounded-xl bg-surface px-3.5 py-2.5 shadow-sm">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-ink">{l.description}</p>
+                  <p className="truncate text-xs text-ink/50">{l.category_name ?? "Uncategorized"}</p>
+                </div>
+                <span className="shrink-0 text-sm font-semibold text-ink">₱{l.amount.toFixed(2)}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
 
       <div className="mt-4 rounded-2xl bg-gradient-to-br from-brand-600 to-brand-500 p-4 text-white shadow-sm">
         <p className="text-xs font-medium text-white/70">Total amount</p>

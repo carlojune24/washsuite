@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { ChevronLeft } from "lucide-react";
 import { toast } from "sonner";
 import { execute, select } from "../lib/db";
@@ -32,7 +32,7 @@ export default function PayrollSettings() {
     try {
       await execute("UPDATE payroll_settings SET overtime_multiplier = ? WHERE id = 1", [multiplier]);
       toast.success("Payroll settings saved");
-      navigate("/payroll");
+      navigate(-1);
     } catch (err) {
       setError(String(err));
     } finally {
@@ -47,12 +47,13 @@ export default function PayrollSettings() {
   return (
     <div>
       <div className="sticky top-0 z-10 mb-4 flex items-center gap-2 bg-page pb-2">
-        <Link
-          to="/payroll"
+        <button
+          type="button"
+          onClick={() => navigate(-1)}
           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface text-ink shadow-sm"
         >
           <ChevronLeft size={18} strokeWidth={2.2} />
-        </Link>
+        </button>
         <div className="min-w-0 flex-1">
           <h1 className="text-xl font-semibold text-ink">Payroll Settings</h1>
           <p className="truncate text-xs text-ink/50">How overtime is valued on payroll runs</p>

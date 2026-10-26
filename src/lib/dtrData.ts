@@ -1,13 +1,14 @@
 import { select } from "./db";
 import type { Attendance } from "../types";
 import type { DtrReportDay } from "./dtrReport";
+import { localDate } from "./localDate";
 
 function datesBetween(from: string, to: string) {
   const dates: string[] = [];
   const cursor = new Date(`${from}T00:00:00`);
   const end = new Date(`${to}T00:00:00`);
   while (cursor <= end) {
-    dates.push(cursor.toISOString().slice(0, 10));
+    dates.push(localDate(cursor));
     cursor.setDate(cursor.getDate() + 1);
   }
   return dates;

@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { ChevronLeft } from "lucide-react";
 import { execute, select, toEntryTimestamp } from "../lib/db";
 import type { PaymentStatus, PaymentMethod } from "../types";
+import { localDate } from "../lib/localDate";
 
 type Direction = "withdrawal" | "injection";
 
@@ -14,7 +15,7 @@ interface FundsRow {
 }
 
 function today() {
-  return new Date().toISOString().slice(0, 10);
+  return localDate(new Date());
 }
 
 export default function CashAdjustmentForm() {

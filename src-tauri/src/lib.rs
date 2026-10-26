@@ -2,6 +2,8 @@ use tauri_plugin_sql::{Migration, MigrationKind};
 
 mod backup;
 mod license;
+mod monitoring;
+mod sensors;
 
 /// Database migrations, applied in order the first time each is seen.
 /// Add new migrations by appending to this Vec -- never edit a migration
@@ -182,6 +184,126 @@ fn migrations() -> Vec<Migration> {
             sql: include_str!("../migrations/0029_license_state_expiry.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 31,
+            description: "load_tags",
+            sql: include_str!("../migrations/0031_load_tags.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 32,
+            description: "machine_sensors",
+            sql: include_str!("../migrations/0032_machine_sensors.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 33,
+            description: "drop_thinq",
+            sql: include_str!("../migrations/0033_drop_thinq.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 34,
+            description: "machine_cycle_logs",
+            sql: include_str!("../migrations/0034_machine_cycle_logs.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 35,
+            description: "machine_calibration",
+            sql: include_str!("../migrations/0035_machine_calibration.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 36,
+            description: "machine_cycle_logs_started_at",
+            sql: include_str!("../migrations/0036_machine_cycle_logs_started_at.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 37,
+            description: "machine_sensor_channels_cd",
+            sql: include_str!("../migrations/0037_machine_sensor_channels_cd.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 38,
+            description: "or_series",
+            sql: include_str!("../migrations/0038_or_series.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 39,
+            description: "vat_and_scpwd",
+            sql: include_str!("../migrations/0039_vat_and_scpwd.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 40,
+            description: "grand_total_counter",
+            sql: include_str!("../migrations/0040_grand_total_counter.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 41,
+            description: "z_readings",
+            sql: include_str!("../migrations/0041_z_readings.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 42,
+            description: "sc_pwd_discount_percent",
+            sql: include_str!("../migrations/0042_sc_pwd_discount_percent.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 43,
+            description: "monitoring_state",
+            sql: include_str!("../migrations/0043_monitoring_state.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 44,
+            description: "monitoring_server_url",
+            sql: include_str!("../migrations/0044_monitoring_server_url.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 45,
+            description: "receipt_invoice_controls",
+            sql: include_str!("../migrations/0045_receipt_invoice_controls.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 46,
+            description: "inventory_usage_type",
+            sql: include_str!("../migrations/0046_inventory_usage_type.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 47,
+            description: "movement_pack_fields",
+            sql: include_str!("../migrations/0047_movement_pack_fields.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 48,
+            description: "expense_purchase_link",
+            sql: include_str!("../migrations/0048_expense_purchase_link.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 49,
+            description: "branch_gcash_qr",
+            sql: include_str!("../migrations/0049_branch_gcash_qr.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 50,
+            description: "order_package_loads",
+            sql: include_str!("../migrations/0050_order_package_loads.sql"),
+            kind: MigrationKind::Up,
+        },
     ]
 }
 
@@ -204,7 +326,12 @@ fn download_handler_plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R>
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_log::Builder::new().build())
+        // Default (no .level()) logs at Trace, which floods WashSuite.log with the webview
+        // event loop's internal polling chatter (polling::iocp etc.) fast enough to rotate out
+        // anything useful -- e.g. the sensor ingest server's own startup/request logs -- within
+        // minutes. Drop to Info; use .level_for("sqlx", LevelFilter::Debug) if query-level SQL
+        // logging is ever needed again.
+        .plugin(tauri_plugin_log::Builder::new().level(log::LevelFilter::Info).build())
         .plugin(tauri_plugin_opener::init())
         .plugin(
             tauri_plugin_sql::Builder::default()
@@ -215,14 +342,23 @@ pub fn run() {
         .plugin(download_handler_plugin())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        .manage(sensors::SensorState::default())
         .invoke_handler(tauri::generate_handler![
             license::get_machine_fingerprint,
             license::check_license,
             license::release_license,
             backup::export_database,
-            backup::import_database
+            backup::import_database,
+            sensors::sensor_server_available,
+            sensors::get_latest_readings,
+            sensors::list_local_addresses,
+            monitoring::register_monitoring,
+            monitoring::push_monitoring_snapshot
         ])
         .setup(|app| {
+            #[cfg(any(desktop, target_os = "android"))]
+            sensors::server::start(app.handle().clone());
+
             // tauri.conf.json declares no windows (`"windows": []`), so on EVERY platform the
             // "main" window only ever exists because it's built here -- there's no fallback.
             // Desktop additionally needs `on_download` attached: WebView2 silently drops every

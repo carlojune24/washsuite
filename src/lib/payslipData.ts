@@ -10,9 +10,10 @@ import {
 } from "./payroll";
 import type { CashAdvance, PayrollRun, PayrollSettings, Payslip, Worker, WorkerDeduction } from "../types";
 import type { PayslipReportOptions } from "./payslipReport";
+import { localDate } from "./localDate";
 
 function today() {
-  return new Date().toISOString().slice(0, 10);
+  return localDate(new Date());
 }
 
 export const PAY_TYPE_LABEL: Record<Worker["pay_type"], string> = {

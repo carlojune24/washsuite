@@ -81,14 +81,14 @@ pub struct LicenseCheckResult {
 /// cloned install the way the desktop path does -- it only exists so the rest of the app is
 /// exercisable on Android while that plugin gets built.
 #[cfg(target_os = "android")]
-fn compute_fingerprint() -> Result<String, String> {
+pub(crate) fn compute_fingerprint() -> Result<String, String> {
     let mut hasher = Sha256::new();
     hasher.update(b"android-placeholder-fingerprint-todo-replace-with-android-id-plugin");
     Ok(format!("{:x}", hasher.finalize()))
 }
 
 #[cfg(not(target_os = "android"))]
-fn compute_fingerprint() -> Result<String, String> {
+pub(crate) fn compute_fingerprint() -> Result<String, String> {
     let raw = machine_uid::get().map_err(|e| format!("couldn't read machine id: {e}"))?;
     let mut hasher = Sha256::new();
     hasher.update(raw.as_bytes());

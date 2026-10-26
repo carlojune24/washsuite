@@ -119,6 +119,25 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* Tells the OS/webview to render native controls (date pickers, scrollbars) in the matching
+   theme. Does NOT cover <select> dropdown popups -- see the `option` rule below for that. */
+html {
+  color-scheme: light;
+}
+html.dark {
+  color-scheme: dark;
+}
+
+/* Chromium/WebView2 renders each <option> row in a <select>'s dropdown popup as its own
+   paint surface -- background-color is not an inherited property, so options never pick up
+   the <select>'s own background (whatever bg-* utility it has) and fall back to the OS
+   default, which is always white regardless of color-scheme or page theme. Pin it explicitly
+   so the popup matches the rest of the app in dark mode. */
+option {
+  background-color: var(--color-surface);
+  color: var(--color-ink);
+}
+
 /* Safe-area helpers for Android's status bar / gesture bar. Fallback matches the fixed
    0.5rem (pt-2) this replaced, so platforms without a safe-area inset (desktop, most
    browsers) keep the same spacing they always had. */
@@ -139,4 +158,9 @@ body {
 }
 .h-safe-bottom {
   height: env(safe-area-inset-bottom, 0px);
+}
+/* Positions the fixed bottom nav itself (see Layout.tsx) above the device's gesture/system
+   bar instead of sitting flush at the screen edge underneath it. */
+.bottom-nav-safe {
+  bottom: env(safe-area-inset-bottom, 0.5rem);
 }

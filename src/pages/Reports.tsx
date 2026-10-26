@@ -17,8 +17,12 @@ import {
   Percent,
   Gift,
   Landmark,
+  Radar,
+  BookOpen,
+  Receipt,
 } from "lucide-react";
 import ListRow from "../components/ListRow";
+import { useAuth } from "../lib/auth";
 
 interface ReportLink {
   to: string;
@@ -59,6 +63,18 @@ const SECTIONS: ReportSection[] = [
         title: "Unpaid orders",
         subtitle: "Outstanding balances from unpaid and partially paid orders",
         icon: Wallet,
+      },
+      {
+        to: "/settings/or-series",
+        title: "OR series & liquidation",
+        subtitle: "Registered BIR receipt series, issued/voided/unused numbers",
+        icon: BookOpen,
+      },
+      {
+        to: "/reports/z-reading",
+        title: "Z-Reading / X-Reading",
+        subtitle: "Daily sales close, grand total, VAT & SC/PWD breakdown",
+        icon: Receipt,
       },
     ],
   },
@@ -162,7 +178,26 @@ const SECTIONS: ReportSection[] = [
   },
 ];
 
+// Owner-only, appended separately (rather than living in SECTIONS) so the link itself stays
+// invisible to staff even if they've been granted general "reports" access via role permissions
+// -- the route it points to is hard-gated with OwnerOnly (see App.tsx), and showing a link that
+// just redirects away would be confusing.
+const OWNER_SECTION: ReportSection = {
+  heading: "Sensors",
+  items: [
+    {
+      to: "/reports/load-verification",
+      title: "Declared vs. sensor-detected loads",
+      subtitle: "Owner-only check on staff-reported load counts against machine sensors",
+      icon: Radar,
+    },
+  ],
+};
+
 export default function Reports() {
+  const { currentUser } = useAuth();
+  const sections = currentUser?.role === "owner" ? [...SECTIONS, OWNER_SECTION] : SECTIONS;
+
   return (
     <div>
       <div className="sticky top-0 z-10 mb-4 flex items-center gap-2 bg-page pb-2">
@@ -175,7 +210,7 @@ export default function Reports() {
         <h1 className="text-xl font-semibold text-ink">Reports</h1>
       </div>
 
-      {SECTIONS.map((section) => (
+      {sections.map((section) => (
         <div key={section.heading} className="mb-6">
           <p className="mb-2 px-1 text-xs font-semibold tracking-wide text-ink/40 uppercase">{section.heading}</p>
           <ul className="space-y-2">

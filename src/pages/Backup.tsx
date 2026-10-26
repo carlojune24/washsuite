@@ -6,9 +6,10 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { readFile } from "@tauri-apps/plugin-fs";
 import { invoke } from "@tauri-apps/api/core";
 import { closeDb } from "../lib/db";
+import { localDate } from "../lib/localDate";
 
 function todayStamp() {
-  return new Date().toISOString().slice(0, 10);
+  return localDate(new Date());
 }
 
 export default function Backup() {

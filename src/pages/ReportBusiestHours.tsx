@@ -45,7 +45,7 @@ export default function ReportBusiestHours() {
 
   useEffect(() => {
     const range = periodRange(period, customFrom, customTo);
-    const conditions: string[] = [];
+    const conditions: string[] = ["status != 'cancelled'"];
     const params: unknown[] = [];
     if (range) {
       conditions.push("substr(drop_off_at,1,10) >= ?", "substr(drop_off_at,1,10) <= ?");

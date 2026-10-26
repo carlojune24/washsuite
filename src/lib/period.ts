@@ -1,9 +1,11 @@
+import { localDate } from "./localDate";
+
 // Shared "today / this week / this month / custom range" filter used across report pages.
 
 export type Period = "today" | "week" | "month" | "custom";
 
 function toISODate(d: Date) {
-  return d.toISOString().slice(0, 10);
+  return localDate(d);
 }
 
 export function periodRange(period: Period, customFrom: string, customTo: string): { from: string; to: string } | null {

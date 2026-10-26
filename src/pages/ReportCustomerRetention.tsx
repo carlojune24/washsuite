@@ -34,7 +34,7 @@ export default function ReportCustomerRetention() {
       `WITH first_orders AS (
          SELECT customer_id, MIN(drop_off_at) AS first_date
          FROM orders
-         WHERE customer_id IS NOT NULL
+         WHERE customer_id IS NOT NULL AND status != 'cancelled'
          GROUP BY customer_id
        )
        SELECT
@@ -44,7 +44,7 @@ export default function ReportCustomerRetention() {
          SUM(o.grand_total) AS total
        FROM orders o
        JOIN first_orders fo ON fo.customer_id = o.customer_id
-       WHERE substr(o.drop_off_at,1,10) >= ? AND substr(o.drop_off_at,1,10) <= ?
+       WHERE o.status != 'cancelled' AND substr(o.drop_off_at,1,10) >= ? AND substr(o.drop_off_at,1,10) <= ?
        GROUP BY segment`,
       [range.from, range.from, range.to],
     ).then((r) => {

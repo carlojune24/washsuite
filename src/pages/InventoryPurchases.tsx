@@ -20,12 +20,15 @@ export default function InventoryPurchases() {
 
   useEffect(() => {
     select<PurchaseRow>(
+      // Correlated subqueries, not a join, on purpose -- a purchase can have both item
+      // movements and "other cost" expenses (see RestockForm's Other costs section), and
+      // joining both to inventory_purchases in one query would fan out into a cross product
+      // that double-counts totals as soon as a receipt has more than one of either.
       `SELECT p.id, p.supplier, p.reference, p.receipt_image, p.purchase_date,
-              COUNT(m.id) AS item_count,
-              COALESCE(SUM(m.quantity * COALESCE(m.unit_price, 0)), 0) AS total_amount
+              (SELECT COUNT(*) FROM inventory_movements m WHERE m.purchase_id = p.id) AS item_count,
+              COALESCE((SELECT SUM(m.quantity * COALESCE(m.unit_price, 0)) FROM inventory_movements m WHERE m.purchase_id = p.id), 0)
+                + COALESCE((SELECT SUM(e.amount) FROM expenses e WHERE e.purchase_id = p.id), 0) AS total_amount
        FROM inventory_purchases p
-       LEFT JOIN inventory_movements m ON m.purchase_id = p.id
-       GROUP BY p.id
        ORDER BY p.created_at DESC`,
     ).then((rows) => {
       setPurchases(rows);

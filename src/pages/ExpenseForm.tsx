@@ -4,9 +4,10 @@ import { ChevronLeft, Camera, X } from "lucide-react";
 import { execute, select, toEntryTimestamp } from "../lib/db";
 import { fileToCompressedDataUrl } from "../lib/image";
 import type { ExpenseCategory, PaymentMethod } from "../types";
+import { localDate } from "../lib/localDate";
 
 function today() {
-  return new Date().toISOString().slice(0, 10);
+  return localDate(new Date());
 }
 
 export default function ExpenseForm() {

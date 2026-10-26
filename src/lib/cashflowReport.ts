@@ -20,6 +20,7 @@ const METHOD_LABEL: Record<PaymentMethod, string> = {
 const SOURCE_LABEL: Record<CashflowEntry["source"], string> = {
   sale: "Sale",
   expense: "Expense",
+  restock: "Restock",
   payroll: "Payroll",
   government: "Gov't Remittance",
   adjustment: "Adjustment",

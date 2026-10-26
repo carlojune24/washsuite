@@ -4,7 +4,12 @@
  * the local DB. No native file APIs involved -- works the same on desktop
  * (WebView2) and Android (WebView).
  */
-export async function fileToCompressedDataUrl(file: File, maxDim = 1280, quality = 0.72): Promise<string> {
+export async function fileToCompressedDataUrl(
+  file: File,
+  maxDim = 1280,
+  quality = 0.72,
+  format: "image/jpeg" | "image/png" = "image/jpeg",
+): Promise<string> {
   const bitmap = await createImageBitmap(file);
   const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height));
   const width = Math.round(bitmap.width * scale);
@@ -17,5 +22,5 @@ export async function fileToCompressedDataUrl(file: File, maxDim = 1280, quality
   if (!ctx) throw new Error("Canvas not supported");
   ctx.drawImage(bitmap, 0, 0, width, height);
 
-  return canvas.toDataURL("image/jpeg", quality);
+  return canvas.toDataURL(format, quality);
 }

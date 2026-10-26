@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ComponentType } from "react";
 import { Link } from "react-router-dom";
-import { ChevronLeft, ShoppingBasket, Zap, User, Landmark, ArrowLeftRight, Wallet, TrendingUp } from "lucide-react";
+import { ChevronLeft, ShoppingBasket, Zap, PackagePlus, User, Landmark, ArrowLeftRight, Wallet, TrendingUp } from "lucide-react";
 import { select } from "../lib/db";
 import { type Period, periodRange } from "../lib/period";
 import type { CashflowEntry } from "../types";
@@ -10,6 +10,7 @@ import ListRow, { EmptyState } from "../components/ListRow";
 const SOURCE_META: Record<CashflowEntry["source"], { label: string; icon: ComponentType<{ size?: number; strokeWidth?: number }> }> = {
   sale: { label: "Sale", icon: ShoppingBasket },
   expense: { label: "Expense", icon: Zap },
+  restock: { label: "Restock", icon: PackagePlus },
   payroll: { label: "Payroll", icon: User },
   government: { label: "Government Remittance", icon: Landmark },
   adjustment: { label: "Adjustment", icon: ArrowLeftRight },

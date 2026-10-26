@@ -4,11 +4,13 @@ import {
   ENCODE,
   type PrintJobRequest,
   type PaperSize,
+  type PrinterInfo,
 } from "tauri-plugin-thermal-printer";
-import type { Order, OrderItem, Customer, Branch, ServicePackage } from "../types";
+import type { Order, OrderItem, Customer, Branch, ServicePackage, LoadTag } from "../types";
 import { formatDateTime } from "./db";
 import { formatInvoiceNumber } from "./invoice";
 import { buildReceiptLines } from "./receiptLines";
+import { computeVatBreakdown } from "./vat";
 
 /**
  * Thin wrapper around tauri-plugin-thermal-printer, tuned for a Bluetooth
@@ -51,6 +53,46 @@ export async function listPairedPrinters() {
   return list_thermal_printers();
 }
 
+const PRINTER_ID_STORAGE_KEY = "washsuite-printer-id";
+
+/** Device-local selected printer -- device-local for the same reason as the roll width. */
+export function getStoredPrinterId(): string | null {
+  return localStorage.getItem(PRINTER_ID_STORAGE_KEY);
+}
+
+export function setStoredPrinterId(identifier: string): void {
+  localStorage.setItem(PRINTER_ID_STORAGE_KEY, identifier);
+}
+
+/**
+ * Picks the printer to print to: the stored selection if it's still paired, the sole paired
+ * printer if there's only one and nothing's stored yet, otherwise `undefined` -- forcing an
+ * explicit choice in Printer Settings when multiple printers are paired.
+ */
+export function resolveSelectedPrinter(printers: PrinterInfo[] | null | undefined): PrinterInfo | undefined {
+  if (!printers || printers.length === 0) return undefined;
+  const storedId = getStoredPrinterId();
+  const stored = storedId ? printers.find((p) => p.identifier === storedId) : undefined;
+  if (stored) return stored;
+  return printers.length === 1 ? printers[0] : undefined;
+}
+
+const MAC_ADDRESS_RE = /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/i;
+
+/**
+ * Resolves the string the plugin's native print calls need for `printer`.
+ *
+ * On Android, `identifier` is the paired device's Bluetooth MAC address, which is exactly
+ * what the native side expects. On Windows desktop, `identifier` is the OS port name (e.g.
+ * "USB001") returned by EnumPrinters, but the desktop print path opens the printer by its
+ * registered name via OpenPrinterW -- passing the port name there fails with "The printer
+ * name is invalid." Use the MAC-address shape to tell the two cases apart without adding a
+ * platform-detection dependency.
+ */
+export function resolvePrinterTarget(printer: PrinterInfo): string {
+  return MAC_ADDRESS_RE.test(printer.identifier) ? printer.identifier : printer.name;
+}
+
 export interface ReceiptData {
   businessName: string;
   branchName?: string;
@@ -60,14 +102,14 @@ export interface ReceiptData {
   pkg?: ServicePackage | null;
 }
 
-export async function printReceipt(printerIdentifier: string, data: ReceiptData) {
+export async function printReceipt(printerInfo: PrinterInfo, data: ReceiptData) {
   const { businessName, branchName, order, items, customer, pkg } = data;
-  const lines = buildReceiptLines(items, pkg ?? null);
+  const lines = buildReceiptLines(items, pkg ?? null, order.package_loads);
   const paperSize = getStoredPaperSize();
   const [itemWidth, qtyWidth, amtWidth] = RECEIPT_COLUMN_WIDTHS[paperSize];
 
   const job: PrintJobRequest = {
-    printer: printerIdentifier,
+    printer: resolvePrinterTarget(printerInfo),
     paper_size: paperSize,
     options: {
       code_page: 6,
@@ -76,7 +118,7 @@ export async function printReceipt(printerIdentifier: string, data: ReceiptData)
     },
     sections: [
       { Title: { text: businessName } },
-      ...(branchName ? [{ Subtitle: { text: branchName } }] : []),
+      ...(branchName ? [{ Text: { text: branchName, styles: centerStyle() } }] : []),
       { Line: { character: "-" } },
       { Text: { text: `Order #: ${order.order_number}`, styles: defaultStyle() } },
       { Text: { text: `Date: ${formatDateTime(order.drop_off_at)}`, styles: defaultStyle() } },
@@ -127,6 +169,12 @@ export interface InvoiceReceiptData {
   customer?: Customer | null;
   pkg?: ServicePackage | null;
   invoiceNumber: number;
+  /** The specific OR series range this invoice number was drawn from -- see getOrderInvoiceSeries
+   * in src/lib/orSeries.ts. Pass null only when the order predates OR series tracking. */
+  orSeriesLabel: string | null;
+  /** The permit number for that same series (falls back to the branch's default permit if the
+   * series didn't register its own). */
+  birPermitNo: string | null;
   paymentMethodLabel?: string | null;
   referenceNo?: string | null;
 }
@@ -134,22 +182,17 @@ export interface InvoiceReceiptData {
 /** Condensed BIR-style sales invoice for the same thermal printer (roll width from
  * Printer Settings) — see src/lib/invoiceReport.ts for the full-page PDF version of this
  * same layout. */
-export async function printInvoice(printerIdentifier: string, data: InvoiceReceiptData) {
-  const { branch, order, items, customer, pkg, invoiceNumber, paymentMethodLabel, referenceNo } = data;
-  const lines = buildReceiptLines(items, pkg ?? null);
+export async function printInvoice(printerInfo: PrinterInfo, data: InvoiceReceiptData) {
+  const { branch, order, items, customer, pkg, invoiceNumber, orSeriesLabel, birPermitNo, paymentMethodLabel, referenceNo } =
+    data;
+  const lines = buildReceiptLines(items, pkg ?? null, order.package_loads);
   const paperSize = getStoredPaperSize();
   const [itemWidth, qtyWidth, amtWidth] = RECEIPT_COLUMN_WIDTHS[paperSize];
 
-  const grossTotal = order.grand_total;
-  const vatAmount = branch.vat_registered ? grossTotal - grossTotal / 1.12 : 0;
-  const saleAmount = grossTotal - vatAmount;
-  const orSeriesLabel =
-    branch.or_series_start && branch.or_series_end
-      ? `${formatInvoiceNumber(branch.or_series_start)}-${formatInvoiceNumber(branch.or_series_end)}`
-      : null;
+  const vat = computeVatBreakdown(order, branch);
 
   const job: PrintJobRequest = {
-    printer: printerIdentifier,
+    printer: resolvePrinterTarget(printerInfo),
     paper_size: paperSize,
     options: {
       code_page: 6,
@@ -158,7 +201,7 @@ export async function printInvoice(printerIdentifier: string, data: InvoiceRecei
     },
     sections: [
       { Title: { text: branch.name.toUpperCase() } },
-      ...(branch.address ? [{ Subtitle: { text: branch.address } }] : []),
+      ...(branch.address ? [{ Text: { text: branch.address, styles: centerStyle() } }] : []),
       ...(branch.tin ? [{ Text: { text: `TIN: ${branch.tin}`, styles: centerStyle() } }] : []),
       { Line: { character: "-" } },
       { Text: { text: "SALES INVOICE", styles: { ...centerStyle(), bold: true } } },
@@ -184,19 +227,31 @@ export async function printInvoice(printerIdentifier: string, data: InvoiceRecei
       { Line: { character: "-" } },
       {
         Text: {
-          text: `${branch.vat_registered ? "Sale (VATable)" : "Sale (VAT-exempt/Non-VAT)"}: ${saleAmount.toFixed(2)}`,
+          text: `${vat.label}: ${(vat.vatableSales + vat.vatExemptSales + vat.zeroRatedSales).toFixed(2)}`,
           styles: rightStyle(),
         },
       },
-      { Text: { text: `VAT (12%): ${vatAmount.toFixed(2)}`, styles: rightStyle() } },
-      { Text: { text: `Discount: ${order.discount_total.toFixed(2)}`, styles: rightStyle() } },
+      { Text: { text: `VAT (12%): ${vat.vatAmount.toFixed(2)}`, styles: rightStyle() } },
+      ...(order.sc_pwd_discount_amount > 0
+        ? [{ Text: { text: `SC/PWD Discount: ${order.sc_pwd_discount_amount.toFixed(2)}`, styles: rightStyle() } }]
+        : [{ Text: { text: `Discount: ${vat.discountAmount.toFixed(2)}`, styles: rightStyle() } }]),
       {
         Text: {
-          text: `TOTAL DUE: ${grossTotal.toFixed(2)}`,
+          text: `TOTAL DUE: ${vat.totalDue.toFixed(2)}`,
           styles: { ...rightStyle(), bold: true, size: "double" },
         },
       },
       { Line: { character: "-" } },
+      ...(order.sc_pwd_discount_amount > 0
+        ? [
+            {
+              Text: {
+                text: `SC/PWD ID: ${order.sc_pwd_id_no ?? "-"}  Name: ${order.sc_pwd_name ?? "-"}`,
+                styles: defaultStyle(),
+              },
+            },
+          ]
+        : []),
       { Text: { text: `Payment Method: ${paymentMethodLabel ?? "-"}`, styles: defaultStyle() } },
       { Text: { text: `Reference No.: ${referenceNo ?? "-"}`, styles: defaultStyle() } },
       { Text: { text: `Terms: ${branch.invoice_terms ?? "Due upon receipt"}`, styles: defaultStyle() } },
@@ -205,15 +260,14 @@ export async function printInvoice(printerIdentifier: string, data: InvoiceRecei
       { Feed: { feed_type: "lines", value: 1 } },
       {
         Text: {
-          text: branch.vat_registered
-            ? "This document is valid for claiming input tax if issued by a VAT-registered entity."
-            : "This document serves as proof of sale. Non-VAT registered. Not valid for claiming input tax.",
+          text:
+            vat.vatStatus === "vatable"
+              ? "This document is valid for claiming input tax if issued by a VAT-registered entity."
+              : "This document serves as proof of sale. Non-VAT registered. Not valid for claiming input tax.",
           styles: centerStyle(),
         },
       },
-      ...(branch.bir_permit_no
-        ? [{ Text: { text: `BIR Permit No. ${branch.bir_permit_no}`, styles: centerStyle() } }]
-        : []),
+      ...(birPermitNo ? [{ Text: { text: `BIR Permit No. ${birPermitNo}`, styles: centerStyle() } }] : []),
       ...(orSeriesLabel ? [{ Text: { text: `Series: ${orSeriesLabel}`, styles: centerStyle() } }] : []),
       { Feed: { feed_type: "lines", value: 1 } },
       { Text: { text: "Thank you for your business!", styles: centerStyle() } },
@@ -223,6 +277,66 @@ export async function printInvoice(printerIdentifier: string, data: InvoiceRecei
   } as PrintJobRequest;
 
   await print_thermal_printer(job);
+}
+
+export interface LoadTagData {
+  businessName: string;
+  order: Order;
+  items: OrderItem[];
+  customer?: Customer | null;
+  pkg?: ServicePackage | null;
+  tags: LoadTag[]; // one per physical load, already numbered by getOrAssignLoadTags
+}
+
+/**
+ * Prints one small tag per physical load — meant to be cut apart and put into the machine with
+ * that load. The daily sequence number is the whole point (that's what the owner tracks loads
+ * by day-to-day), so it's the biggest thing on the tag; order/customer/contents are there so a
+ * lost or mixed-up tag can still be traced back.
+ */
+export async function printLoadTags(printerInfo: PrinterInfo, data: LoadTagData) {
+  const { businessName, order, items, customer, pkg, tags } = data;
+  const lines = buildReceiptLines(items, pkg ?? null, order.package_loads);
+  const paperSize = getStoredPaperSize();
+  const target = resolvePrinterTarget(printerInfo);
+
+  for (const tag of tags) {
+    const job: PrintJobRequest = {
+      printer: target,
+      paper_size: paperSize,
+      options: {
+        code_page: 6,
+        encode: ENCODE.WINDOWS_1252,
+        use_gbk: false,
+      },
+      sections: [
+        { Title: { text: businessName } },
+        { Line: { character: "-" } },
+        {
+          Text: {
+            text: `#${tag.daily_number}`,
+            styles: { ...centerStyle(), bold: true, size: "double" },
+          },
+        },
+        { Text: { text: `Load ${tag.load_index} of ${tags.length}`, styles: centerStyle() } },
+        { Line: { character: "-" } },
+        { Text: { text: `Order #: ${order.order_number}`, styles: defaultStyle() } },
+        {
+          Text: {
+            text: `Customer: ${customer?.full_name ?? "Walk-in"}`,
+            styles: defaultStyle(),
+          },
+        },
+        ...lines.map((it) => ({
+          Text: { text: `${it.description} x${it.quantity}`, styles: defaultStyle() },
+        })),
+        { Feed: { feed_type: "lines", value: 2 } },
+        { Cut: { mode: "full", feed: 3 } },
+      ],
+    } as PrintJobRequest;
+
+    await print_thermal_printer(job);
+  }
 }
 
 function defaultStyle() {

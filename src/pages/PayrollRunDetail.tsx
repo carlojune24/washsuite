@@ -26,6 +26,7 @@ import { fetchPayslipData, toPayslipReportOptions, type PayslipData } from "../l
 import { describeBasicSalary } from "../lib/payroll";
 import { generatePayslipReportPdf } from "../lib/payslipReport";
 import type { PayrollRun, Payslip, Worker, PaymentMethod, CashAdvance } from "../types";
+import { localDate } from "../lib/localDate";
 
 interface PayslipRow extends Payslip {
   worker_name: string;
@@ -288,7 +289,7 @@ export default function PayrollRunDetail() {
             row.payslip.id,
             netPay,
             `Payroll - ${row.payslip.worker_name} (${periodLabel(run)})`,
-            toEntryTimestamp(new Date().toISOString().slice(0, 10)),
+            toEntryTimestamp(localDate(new Date())),
             paymentMethod,
           ],
         );
@@ -309,7 +310,7 @@ export default function PayrollRunDetail() {
             -row.payslip.id,
             govAmount,
             `Government deductions - ${row.payslip.worker_name} (${periodLabel(run)})`,
-            toEntryTimestamp(new Date().toISOString().slice(0, 10)),
+            toEntryTimestamp(localDate(new Date())),
             paymentMethod,
           ],
         );

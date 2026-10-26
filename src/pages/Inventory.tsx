@@ -43,31 +43,32 @@ export default function Inventory() {
 
   return (
     <div>
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-3 flex items-center justify-between">
         <PageHeading title="Inventory" hint="Detergent, fabric conditioner, packaging, and more." />
-        <div className="flex shrink-0 gap-2">
-          <Link
-            to="/inventory/purchases"
-            className="flex h-10 w-10 items-center justify-center rounded-full bg-surface text-brand-600 shadow-sm"
-            aria-label="Restock history"
-          >
-            <History size={17} strokeWidth={2.2} />
-          </Link>
-          <Link
-            to="/inventory/restock"
-            className="flex h-10 w-10 items-center justify-center rounded-full bg-surface text-brand-600 shadow-sm"
-            aria-label="Restock"
-          >
-            <PackagePlus size={17} strokeWidth={2.2} />
-          </Link>
-          <Link
-            to="/inventory/new"
-            className="flex h-10 w-10 items-center justify-center rounded-full bg-brand-500 text-white shadow-sm"
-            aria-label="Add item"
-          >
-            <Plus size={18} strokeWidth={2.2} />
-          </Link>
-        </div>
+        <Link
+          to="/inventory/new"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-500 text-white shadow-sm"
+          aria-label="Add item"
+        >
+          <Plus size={18} strokeWidth={2.2} />
+        </Link>
+      </div>
+
+      <div className="mb-4 flex gap-2">
+        <Link
+          to="/inventory/purchases"
+          className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-surface py-2.5 text-xs font-semibold text-brand-600 shadow-sm"
+        >
+          <History size={14} strokeWidth={2.2} />
+          Restock history
+        </Link>
+        <Link
+          to="/inventory/restock"
+          className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-surface py-2.5 text-xs font-semibold text-brand-600 shadow-sm"
+        >
+          <PackagePlus size={14} strokeWidth={2.2} />
+          Restock
+        </Link>
       </div>
 
       <label className="mb-3 flex items-center gap-2 rounded-2xl bg-surface px-3.5 py-2.5 shadow-sm">
@@ -119,7 +120,7 @@ export default function Inventory() {
               icon={Package}
               iconClassName={low ? "bg-amber-100 text-amber-600" : undefined}
               title={it.name}
-              subtitle={`${it.quantity_on_hand} ${it.unit} on hand${doseNote}${low ? " · Low stock" : ""}`}
+              subtitle={`${it.quantity_on_hand} ${it.unit} on hand${doseNote}${low ? " · Low stock" : ""}${it.usage_type === "supply" ? " · Supply" : ""}`}
               value={retail != null ? `₱${retail.toFixed(2)}` : "—"}
             />
           );

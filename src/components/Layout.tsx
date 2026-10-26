@@ -76,7 +76,7 @@ export default function Layout() {
         <Outlet />
       </main>
 
-      <nav className="fixed inset-x-4 bottom-0">
+      <nav className="fixed inset-x-4 bottom-nav-safe">
         <div className="pb-3 flex items-end justify-between rounded-t-[28px] bg-surface px-2 pt-2 shadow-[0_-4px_20px_rgba(17,46,129,0.15)]">
           {leftTabs.map((tab) => (
             <TabLink key={tab.to} {...tab} />

@@ -4,6 +4,7 @@ import { Search, UserPlus, Users, UserPlus2, Crown, Star, Settings2, Gift } from
 import { select } from "../lib/db";
 import type { Customer, LoyaltyTier } from "../types";
 import { EmptyState, PageHeading } from "../components/ListRow";
+import { localDate } from "../lib/localDate";
 
 interface OrderAgg {
   customer_id: number;
@@ -77,7 +78,7 @@ export default function Customers() {
   }, []);
 
   const rows = useMemo(() => {
-    const cutoff = new Date(Date.now() - ACTIVE_WINDOW_DAYS * 86400000).toISOString().slice(0, 10);
+    const cutoff = localDate(new Date(Date.now() - ACTIVE_WINDOW_DAYS * 86400000));
     return customers.map((c) => {
       const agg = orderAgg.find((a) => a.customer_id === c.id);
       const tier = tierFor(c.loyalty_points, tiers);

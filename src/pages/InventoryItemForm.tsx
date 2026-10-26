@@ -20,6 +20,7 @@ const BLANK = {
   description: "",
   unit: "",
   reorder_level: "0",
+  usage_type: "consumable" as "consumable" | "supply",
   markup_type: "percent" as "percent" | "fixed",
   markup_percent: "0",
   markup_amount: "0",
@@ -49,6 +50,7 @@ export default function InventoryItemForm() {
           description: it.description ?? "",
           unit: it.unit,
           reorder_level: String(it.reorder_level),
+          usage_type: it.usage_type,
           markup_type: it.markup_type,
           markup_percent: String(it.markup_percent),
           markup_amount: String(it.markup_amount),
@@ -132,6 +134,7 @@ export default function InventoryItemForm() {
         form.description.trim() || null,
         form.unit.trim(),
         Number(form.reorder_level) || 0,
+        form.usage_type,
         form.markup_type,
         Number(form.markup_percent) || 0,
         Number(form.markup_amount) || 0,
@@ -143,7 +146,7 @@ export default function InventoryItemForm() {
       if (isEdit) {
         await execute(
           `UPDATE inventory_items
-           SET name = ?, description = ?, unit = ?, reorder_level = ?, markup_type = ?, markup_percent = ?, markup_amount = ?,
+           SET name = ?, description = ?, unit = ?, reorder_level = ?, usage_type = ?, markup_type = ?, markup_percent = ?, markup_amount = ?,
                dose_size = ?, dose_label = ?, dose_unit_label = ?, dose_unit_factor = ?, updated_at = datetime('now')
            WHERE id = ?`,
           [...values, id],
@@ -151,8 +154,8 @@ export default function InventoryItemForm() {
         navigate(`/inventory/${id}`);
       } else {
         const res = await execute(
-          `INSERT INTO inventory_items (name, description, unit, reorder_level, markup_type, markup_percent, markup_amount, dose_size, dose_label, dose_unit_label, dose_unit_factor)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO inventory_items (name, description, unit, reorder_level, usage_type, markup_type, markup_percent, markup_amount, dose_size, dose_label, dose_unit_label, dose_unit_factor)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           values,
         );
         navigate(`/inventory/restock?item=${res.lastInsertId}`);
@@ -209,6 +212,29 @@ export default function InventoryItemForm() {
           onChange={(v) => update("reorder_level", v)}
           type="number"
         />
+        <div className="rounded-2xl bg-surface p-3.5 shadow-sm">
+          <span className="mb-2 block text-xs font-medium text-ink/50">Usage type</span>
+          <div className="flex gap-1.5 rounded-2xl bg-surface-muted p-1.5">
+            {(["consumable", "supply"] as const).map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => update("usage_type", t)}
+                className={
+                  "flex-1 rounded-xl py-1.5 text-xs font-semibold transition-colors " +
+                  (form.usage_type === t ? "bg-brand-500 text-white" : "text-ink/50")
+                }
+              >
+                {t === "consumable" ? "POS consumption" : "Business supply"}
+              </button>
+            ))}
+          </div>
+          <p className="mt-1.5 text-xs text-ink/40">
+            {form.usage_type === "consumable"
+              ? "Counted as a cost of the service you sell (e.g. detergent, fabric conditioner)."
+              : "Tracked as stock but not a per-order service cost (e.g. trash bags, packaging)."}
+          </p>
+        </div>
         <div className="rounded-2xl bg-surface p-3.5 shadow-sm">
           <span className="mb-2 block text-xs font-medium text-ink/50">Markup over cost</span>
           <div className="mb-2 flex gap-1.5 rounded-2xl bg-surface-muted p-1.5">

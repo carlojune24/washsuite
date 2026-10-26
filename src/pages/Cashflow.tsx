@@ -12,6 +12,7 @@ import {
   Zap,
   User,
   ArrowLeftRight,
+  PackagePlus,
   Clock,
   PieChart,
   Banknote,
@@ -23,12 +24,15 @@ import { select, formatTime } from "../lib/db";
 import type { Branch, CashflowEntry, PaymentStatus, PaymentMethod } from "../types";
 import { EmptyState } from "../components/ListRow";
 import { generateCashflowReportPdf } from "../lib/cashflowReport";
+import { formatInvoiceNumber } from "../lib/invoice";
+import { localDate } from "../lib/localDate";
 
 type PeriodFilter = "month" | "range";
-type CategoryFilter = "all" | "income" | "expense" | "payroll" | "government" | "adjustment";
+type CategoryFilter = "all" | "income" | "expense" | "restock" | "payroll" | "government" | "adjustment";
 
 interface CashflowRow extends CashflowEntry {
   order_payment_status: PaymentStatus | null;
+  order_invoice_number: number | null;
 }
 
 interface Row extends CashflowRow {
@@ -42,6 +46,7 @@ const SOURCE_META: Record<
 > = {
   sale: { label: "Sale", icon: ShoppingBasket },
   expense: { label: "Expense", icon: Zap },
+  restock: { label: "Restock", icon: PackagePlus },
   payroll: { label: "Payroll", icon: User },
   government: { label: "Government Remittance", icon: Landmark },
   adjustment: { label: "Adjustment", icon: ArrowLeftRight },
@@ -58,13 +63,14 @@ const CATEGORY_PILLS: { key: CategoryFilter; label: string }[] = [
   { key: "all", label: "All" },
   { key: "income", label: "Income" },
   { key: "expense", label: "Expenses" },
+  { key: "restock", label: "Restock" },
   { key: "payroll", label: "Payroll" },
   { key: "government", label: "Government" },
   { key: "adjustment", label: "Adjustments" },
 ];
 
 function toISODate(d: Date) {
-  return d.toISOString().slice(0, 10);
+  return localDate(d);
 }
 
 function currentMonth() {
@@ -83,8 +89,8 @@ function pctChange(curr: number, prev: number): number | null {
 }
 
 function dayLabel(dateStr: string) {
-  const today = new Date().toISOString().slice(0, 10);
-  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  const today = localDate(new Date());
+  const yesterday = localDate(new Date(Date.now() - 86400000));
   if (dateStr === today) return `Today · ${new Date(dateStr).toLocaleDateString([], { month: "long", day: "numeric", year: "numeric" })}`;
   if (dateStr === yesterday) return `Yesterday · ${new Date(dateStr).toLocaleDateString([], { month: "long", day: "numeric", year: "numeric" })}`;
   return new Date(dateStr).toLocaleDateString([], { month: "long", day: "numeric", year: "numeric" });
@@ -104,7 +110,7 @@ export default function Cashflow() {
 
   useEffect(() => {
     select<CashflowRow>(
-      `SELECT e.*, o.payment_status AS order_payment_status
+      `SELECT e.*, o.payment_status AS order_payment_status, o.invoice_number AS order_invoice_number
        FROM cashflow_entries e
        LEFT JOIN orders o ON e.source = 'sale' AND e.source_id = o.id
        ORDER BY e.entry_date ASC`,
@@ -180,34 +186,45 @@ export default function Cashflow() {
     });
   }, [withBalance, period, month, dateFrom, dateTo]);
 
+  // "Hide un-invoiced sales" (Settings → Business Info) scrubs sale entries for orders with no
+  // invoice number from every audit-facing number below -- summary cards, the itemized list, and
+  // the PDF export (which derives from `filtered`). cashOnHand/cashBreakdown above are deliberately
+  // NOT filtered -- that's real cash the shop must keep tracking accurately regardless of this
+  // display setting.
+  const isHiddenUninvoiced = (r: Row) =>
+    !!branch?.hide_uninvoiced_sales_in_cashflow && r.source === "sale" && !r.order_invoice_number;
+
+  const visible = useMemo(() => inPeriod.filter((r) => !isHiddenUninvoiced(r)), [inPeriod, branch]);
+
   const stats = useMemo(() => {
-    const income = inPeriod.filter((r) => r.entry_type === "income" && !r.receivable);
-    const expense = inPeriod.filter((r) => r.entry_type === "expense");
+    const income = visible.filter((r) => r.entry_type === "income" && !r.receivable);
+    const expense = visible.filter((r) => r.entry_type === "expense");
     const incomeSum = income.reduce((s, r) => s + r.amount, 0);
     const expenseSum = expense.reduce((s, r) => s + r.amount, 0);
     return { incomeSum, incomeCount: income.length, expenseSum, expenseCount: expense.length, net: incomeSum - expenseSum };
-  }, [inPeriod]);
+  }, [visible]);
 
   const prevStats = useMemo(() => {
     if (period !== "month") return null;
     const prev = prevMonthOf(month);
-    const rows = withBalance.filter((r) => r.entry_date.slice(0, 7) === prev);
+    const rows = withBalance.filter((r) => r.entry_date.slice(0, 7) === prev && !isHiddenUninvoiced(r));
     const incomeSum = rows.filter((r) => r.entry_type === "income" && !r.receivable).reduce((s, r) => s + r.amount, 0);
     const expenseSum = rows.filter((r) => r.entry_type === "expense").reduce((s, r) => s + r.amount, 0);
     return { incomeSum, expenseSum, net: incomeSum - expenseSum };
-  }, [withBalance, period, month]);
+  }, [withBalance, period, month, branch]);
 
   const filtered = useMemo(() => {
-    return inPeriod.filter((r) => {
+    return visible.filter((r) => {
       if (categoryFilter === "income" && !(r.entry_type === "income" && r.source !== "adjustment")) return false;
       if (categoryFilter === "expense" && r.source !== "expense") return false;
+      if (categoryFilter === "restock" && r.source !== "restock") return false;
       if (categoryFilter === "payroll" && r.source !== "payroll") return false;
       if (categoryFilter === "government" && r.source !== "government") return false;
       if (categoryFilter === "adjustment" && r.source !== "adjustment") return false;
       if (methodFilter !== "all" && r.method !== methodFilter) return false;
       return true;
     });
-  }, [inPeriod, categoryFilter, methodFilter]);
+  }, [visible, categoryFilter, methodFilter]);
 
   const grouped = useMemo(() => {
     const byDay = new Map<string, Row[]>();
@@ -539,8 +556,8 @@ export default function Cashflow() {
                 const meta = SOURCE_META[r.source];
                 const methodMeta = r.method ? METHOD_META[r.method] : null;
                 const time = formatTime(r.entry_date);
-                return (
-                  <li key={r.id} className="flex items-center gap-3 rounded-2xl bg-surface p-3.5 shadow-sm">
+                const rowContent = (
+                  <>
                     <span
                       className={
                         "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl " +
@@ -561,6 +578,8 @@ export default function Cashflow() {
                         <span className={"truncate text-xs " + (r.receivable ? "text-ink/30" : "text-ink/40")}>
                           {meta.label}
                           {r.receivable ? " · Unpaid" : ""} · {time}
+                          {r.source === "sale" && r.order_invoice_number != null &&
+                            ` · INV #${formatInvoiceNumber(r.order_invoice_number)}`}
                         </span>
                         {methodMeta && (
                           <span className={"shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold " + methodMeta.className}>
@@ -580,6 +599,17 @@ export default function Cashflow() {
                       </p>
                       {!r.receivable && <p className="text-[10px] text-ink/30">Balance: ₱{r.balance.toFixed(2)}</p>}
                     </div>
+                  </>
+                );
+                return (
+                  <li key={r.id} className="rounded-2xl bg-surface shadow-sm">
+                    {r.source === "adjustment" ? (
+                      <Link to={`/cashflow/adjustments/${r.id}`} className="flex items-center gap-3 p-3.5">
+                        {rowContent}
+                      </Link>
+                    ) : (
+                      <div className="flex items-center gap-3 p-3.5">{rowContent}</div>
+                    )}
                   </li>
                 );
               })}

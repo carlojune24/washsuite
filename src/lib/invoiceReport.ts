@@ -1,6 +1,7 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { formatInvoiceNumber } from "./invoice";
+import type { VatBreakdown } from "./vat";
 
 const BRAND_900: [number, number, number] = [17, 46, 129];
 const SLATE_100: [number, number, number] = [241, 245, 249];
@@ -20,7 +21,6 @@ export interface InvoiceReportOptions {
   businessContact: string | null;
   birPermitNo: string | null;
   orSeriesLabel: string | null;
-  vatRegistered: boolean;
   invoiceNumber: number;
   orderNumber: string;
   dateLabel: string;
@@ -28,12 +28,12 @@ export interface InvoiceReportOptions {
   customerTin: string | null;
   customerAddress: string | null;
   items: InvoiceLineItem[];
-  /** The order's actual charged total (`orders.grand_total`) — the source of truth for the Sale/VAT/
-   * TOTAL DUE breakdown. Not derived from summing `items`, since a package order's item lines are
-   * zeroed-out placeholders (the package price already covers them) and would silently understate it. */
-  grandTotal: number;
-  /** Informational only — already reflected in `grandTotal`, not subtracted from it again. */
-  discount: number;
+  /** Precomputed via computeVatBreakdown(order, branch) in src/lib/vat.ts — the single source of
+   * truth for the Sale/VAT/TOTAL DUE breakdown, including the (post-discount) `totalDue`, which is
+   * `orders.grand_total`, not a sum of `items` (package orders zero out item lines). */
+  vat: VatBreakdown;
+  /** Set when the sale used the statutory SC/PWD discount, so the ID/name can be itemized. */
+  scPwd: { idNo: string | null; name: string | null; discountAmount: number } | null;
   paymentMethodLabel: string | null;
   referenceNo: string | null;
   terms: string | null;
@@ -123,9 +123,8 @@ export function buildInvoiceDoc(opts: InvoiceReportOptions): jsPDF {
   y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 18;
 
   // ---- Totals ----
-  const grossTotal = opts.grandTotal;
-  const vatAmount = opts.vatRegistered ? grossTotal - grossTotal / 1.12 : 0;
-  const saleAmount = grossTotal - vatAmount;
+  const { vat, scPwd } = opts;
+  const saleAmount = vat.vatableSales + vat.vatExemptSales + vat.zeroRatedSales;
 
   function totalRow(label: string, value: string, bold = false, color: [number, number, number] = SLATE_500) {
     doc.setFont("helvetica", bold ? "bold" : "normal");
@@ -135,13 +134,24 @@ export function buildInvoiceDoc(opts: InvoiceReportOptions): jsPDF {
     doc.text(value, pageWidth - margin, y, { align: "right" });
     y += bold ? 18 : 14;
   }
-  totalRow(opts.vatRegistered ? "Sale (VATable)" : "Sale (VAT-exempt/Non-VAT)", peso(saleAmount));
-  totalRow("VAT (12%)", peso(vatAmount));
-  totalRow("Discount", peso(opts.discount));
+  totalRow(vat.label, peso(saleAmount));
+  totalRow("VAT (12%)", peso(vat.vatAmount));
+  if (scPwd && scPwd.discountAmount > 0) {
+    totalRow("SC/PWD Discount", peso(scPwd.discountAmount));
+  } else {
+    totalRow("Discount", peso(vat.discountAmount));
+  }
   doc.setDrawColor(...SLATE_100);
   doc.line(pageWidth - margin - 160, y - 4, pageWidth - margin, y - 4);
   y += 4;
-  totalRow("TOTAL DUE", peso(grossTotal), true, BRAND_900);
+  totalRow("TOTAL DUE", peso(vat.totalDue), true, BRAND_900);
+  if (scPwd && scPwd.discountAmount > 0) {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.5);
+    doc.setTextColor(...SLATE_500);
+    doc.text(`SC/PWD ID: ${scPwd.idNo ?? "—"}   Name: ${scPwd.name ?? "—"}`, pageWidth - margin, y, { align: "right" });
+    y += 14;
+  }
 
   y += 16;
 
@@ -175,9 +185,10 @@ export function buildInvoiceDoc(opts: InvoiceReportOptions): jsPDF {
   doc.setFont("helvetica", "bold");
   doc.setFontSize(8);
   doc.setTextColor(...SLATE_500);
-  const disclaimer = opts.vatRegistered
-    ? "THIS DOCUMENT SHALL BE VALID FOR CLAIM OF INPUT TAX ONLY IF ISSUED BY A VAT-REGISTERED PERSON/ENTITY."
-    : "THIS DOCUMENT SERVES AS PROOF OF SALE FOR SERVICES RENDERED. NON-VAT REGISTERED. THIS DOCUMENT IS NOT VALID FOR CLAIMING INPUT TAX.";
+  const disclaimer =
+    vat.vatStatus === "vatable"
+      ? "THIS DOCUMENT SHALL BE VALID FOR CLAIM OF INPUT TAX ONLY IF ISSUED BY A VAT-REGISTERED PERSON/ENTITY."
+      : "THIS DOCUMENT SERVES AS PROOF OF SALE FOR SERVICES RENDERED. NON-VAT REGISTERED. THIS DOCUMENT IS NOT VALID FOR CLAIMING INPUT TAX.";
   const disclaimerLines = doc.splitTextToSize(disclaimer, usableWidth);
   doc.text(disclaimerLines, centerX, y, { align: "center" });
   y += disclaimerLines.length * 10 + 4;

@@ -45,7 +45,7 @@ export default function ReportServiceRevenue() {
          FROM order_items oi
          JOIN orders o ON o.id = oi.order_id
          JOIN service_types st ON st.id = oi.service_type_id
-         WHERE oi.service_type_id IS NOT NULL AND oi.line_total > 0 ${dateWhere}
+         WHERE oi.service_type_id IS NOT NULL AND oi.line_total > 0 AND o.status != 'cancelled' ${dateWhere}
          GROUP BY oi.service_type_id
          ORDER BY total DESC`,
         dateParams,
@@ -54,7 +54,7 @@ export default function ReportServiceRevenue() {
         `SELECT o.package_id, sp.name, sp.price, COUNT(*) AS order_count
          FROM orders o
          JOIN service_packages sp ON sp.id = o.package_id
-         WHERE o.package_id IS NOT NULL ${dateWhere}
+         WHERE o.package_id IS NOT NULL AND o.status != 'cancelled' ${dateWhere}
          GROUP BY o.package_id
          ORDER BY order_count DESC`,
         dateParams,

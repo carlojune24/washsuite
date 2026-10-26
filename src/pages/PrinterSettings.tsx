@@ -9,7 +9,15 @@ import {
   type PaperSize,
   type PrinterInfo,
 } from "tauri-plugin-thermal-printer";
-import { getStoredPaperSize, listPairedPrinters, setStoredPaperSize } from "../lib/printer";
+import {
+  getStoredPaperSize,
+  getStoredPrinterId,
+  listPairedPrinters,
+  resolvePrinterTarget,
+  resolveSelectedPrinter,
+  setStoredPaperSize,
+  setStoredPrinterId,
+} from "../lib/printer";
 
 const PAPER_SIZE_LABELS: Record<PaperSize, string> = {
   Mm40: "40mm",
@@ -26,6 +34,7 @@ export default function PrinterSettings() {
   const [loadingPrinters, setLoadingPrinters] = useState(true);
   const [printerError, setPrinterError] = useState<string | null>(null);
   const [paperSize, setPaperSize] = useState<PaperSize>(getStoredPaperSize);
+  const [selectedPrinterId, setSelectedPrinterId] = useState<string | null>(getStoredPrinterId);
   const [testing, setTesting] = useState(false);
 
   useEffect(() => {
@@ -36,7 +45,9 @@ export default function PrinterSettings() {
     setLoadingPrinters(true);
     setPrinterError(null);
     try {
-      setPrinters(await listPairedPrinters());
+      const found = await listPairedPrinters();
+      setPrinters(found);
+      setSelectedPrinterId(resolveSelectedPrinter(found)?.identifier ?? null);
     } catch (err) {
       setPrinterError(String(err));
       setPrinters(null);
@@ -51,17 +62,27 @@ export default function PrinterSettings() {
     toast.success(`Roll width set to ${PAPER_SIZE_LABELS[size]}`);
   }
 
+  function handleSelectPrinter(p: PrinterInfo) {
+    setStoredPrinterId(p.identifier);
+    setSelectedPrinterId(p.identifier);
+    toast.success(`${p.name || p.identifier} set as default printer`);
+  }
+
   async function handleTestPrint() {
-    const printer = printers?.[0];
+    const printer = printers?.find((p) => p.identifier === selectedPrinterId);
     if (!printer) {
-      toast.error("No paired printer found. Pair one in your device's Bluetooth settings.");
+      toast.error(
+        printers && printers.length > 1
+          ? "Select a printer above first."
+          : "No paired printer found. Pair one in your device's Bluetooth settings.",
+      );
       return;
     }
     setTesting(true);
     try {
       await test_thermal_printer({
         printer_info: {
-          printer: printer.identifier,
+          printer: resolvePrinterTarget(printer),
           paper_size: paperSize,
           options: { code_page: 6, encode: ENCODE.WINDOWS_1252, use_gbk: false },
           sections: [],
@@ -125,18 +146,30 @@ export default function PrinterSettings() {
         )}
         {printers && printers.length > 0 && (
           <ul className="space-y-1.5">
-            {printers.map((p) => (
-              <li key={p.identifier} className="flex items-center justify-between rounded-xl bg-page px-3 py-2 text-sm">
-                <span className="font-medium text-ink">{p.name || p.identifier}</span>
-                <span className="text-xs text-ink/40">{p.status}</span>
-              </li>
-            ))}
+            {printers.map((p) => {
+              const selected = p.identifier === selectedPrinterId;
+              return (
+                <li key={p.identifier}>
+                  <button
+                    type="button"
+                    onClick={() => handleSelectPrinter(p)}
+                    className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm ${
+                      selected ? "bg-brand-500 text-white" : "bg-page text-ink"
+                    }`}
+                  >
+                    <span className="font-medium">{p.name || p.identifier}</span>
+                    <span className={`flex items-center gap-1.5 text-xs ${selected ? "text-white/80" : "text-ink/40"}`}>
+                      {p.status}
+                      {selected && <CheckCircle2 size={14} strokeWidth={2.2} />}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         )}
-        {printers && printers.length > 1 && (
-          <p className="mt-2 text-xs text-amber-600">
-            Multiple paired devices found — WashSuite always prints to the first one listed above.
-          </p>
+        {printers && printers.length > 1 && !selectedPrinterId && (
+          <p className="mt-2 text-xs text-amber-600">Multiple paired devices found — tap one above to select it.</p>
         )}
       </div>
 

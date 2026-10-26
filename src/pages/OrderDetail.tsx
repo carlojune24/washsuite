@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { useAuth } from "../lib/auth";
 import { toast } from "sonner";
 import {
   ChevronLeft,
@@ -17,10 +18,12 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { execute, select, formatDateTime } from "../lib/db";
-import { listPairedPrinters, printReceipt, printInvoice } from "../lib/printer";
+import { listPairedPrinters, printReceipt, printInvoice, resolveSelectedPrinter } from "../lib/printer";
 import { getOrAssignInvoiceNumber, formatInvoiceNumber } from "../lib/invoice";
+import { getOrderInvoiceSeries } from "../lib/orSeries";
 import { generateInvoicePdf } from "../lib/invoiceReport";
 import { buildReceiptLines } from "../lib/receiptLines";
+import { computeVatBreakdown } from "../lib/vat";
 import type { Order, OrderItem, Customer, ServicePackage, Branch, PaymentMethod, OrderStatus } from "../types";
 
 const STATUS_LABEL: Record<Order["status"], string> = {
@@ -57,6 +60,7 @@ const METHOD_LABEL: Record<PaymentMethod, string> = {
 
 export default function OrderDetail() {
   const { id } = useParams();
+  const { currentUser } = useAuth();
   const navigate = useNavigate();
   const [order, setOrder] = useState<Order | null>(null);
   const [items, setItems] = useState<OrderItem[]>([]);
@@ -115,11 +119,16 @@ export default function OrderDetail() {
     setPrintError(null);
     try {
       const printers = await listPairedPrinters();
-      if (!printers || printers.length === 0) {
-        setPrintError("No paired printer found. Pair one in your device's Bluetooth settings.");
+      const printer = resolveSelectedPrinter(printers);
+      if (!printer) {
+        setPrintError(
+          printers && printers.length > 1
+            ? "Multiple printers paired — select one in Printer Settings."
+            : "No paired printer found. Pair one in your device's Bluetooth settings.",
+        );
         return;
       }
-      await printReceipt(printers[0].identifier, {
+      await printReceipt(printer, {
         businessName: "WashSuite",
         branchName: branch?.name,
         order,
@@ -140,26 +149,30 @@ export default function OrderDetail() {
     setInvoiceError(null);
     try {
       const invoiceNumber = await getOrAssignInvoiceNumber(order.id);
+      setOrder((prev) => (prev ? { ...prev, invoice_number: invoiceNumber } : prev));
+      const invoiceSeries = await getOrderInvoiceSeries(order.id);
+      const orSeriesLabel = invoiceSeries
+        ? `${formatInvoiceNumber(invoiceSeries.seriesStart)}-${formatInvoiceNumber(invoiceSeries.seriesEnd)}`
+        : null;
       generateInvoicePdf({
         businessName: branch.name,
         businessAddress: branch.address,
         businessTin: branch.tin,
         businessContact: branch.phone,
-        birPermitNo: branch.bir_permit_no,
-        orSeriesLabel:
-          branch.or_series_start && branch.or_series_end
-            ? `${String(branch.or_series_start).padStart(5, "0")}-${String(branch.or_series_end).padStart(5, "0")}`
-            : null,
-        vatRegistered: !!branch.vat_registered,
+        birPermitNo: invoiceSeries?.permitNo ?? branch.bir_permit_no,
+        orSeriesLabel,
         invoiceNumber,
         orderNumber: order.order_number,
         dateLabel: formatDateTime(order.drop_off_at),
         customerName: customer?.full_name ?? "Walk-in",
         customerTin: customer?.tin ?? null,
         customerAddress: customer?.address ?? null,
-        items: buildReceiptLines(items, pkg),
-        grandTotal: order.grand_total,
-        discount: order.discount_total,
+        items: buildReceiptLines(items, pkg, order.package_loads),
+        vat: computeVatBreakdown(order, branch),
+        scPwd:
+          order.sc_pwd_discount_amount > 0
+            ? { idNo: order.sc_pwd_id_no, name: order.sc_pwd_name, discountAmount: order.sc_pwd_discount_amount }
+            : null,
         paymentMethodLabel: lastPaymentMethod ? METHOD_LABEL[lastPaymentMethod] : null,
         referenceNo: lastPaymentReference,
         terms: branch.invoice_terms,
@@ -178,18 +191,29 @@ export default function OrderDetail() {
     setInvoiceError(null);
     try {
       const printers = await listPairedPrinters();
-      if (!printers || printers.length === 0) {
-        setInvoiceError("No paired printer found. Pair one in your device's Bluetooth settings.");
+      const printer = resolveSelectedPrinter(printers);
+      if (!printer) {
+        setInvoiceError(
+          printers && printers.length > 1
+            ? "Multiple printers paired — select one in Printer Settings."
+            : "No paired printer found. Pair one in your device's Bluetooth settings.",
+        );
         return;
       }
       const invoiceNumber = await getOrAssignInvoiceNumber(order.id);
-      await printInvoice(printers[0].identifier, {
+      setOrder((prev) => (prev ? { ...prev, invoice_number: invoiceNumber } : prev));
+      const invoiceSeries = await getOrderInvoiceSeries(order.id);
+      await printInvoice(printer, {
         branch,
         order,
         items,
         customer,
         pkg,
         invoiceNumber,
+        orSeriesLabel: invoiceSeries
+          ? `${formatInvoiceNumber(invoiceSeries.seriesStart)}-${formatInvoiceNumber(invoiceSeries.seriesEnd)}`
+          : null,
+        birPermitNo: invoiceSeries?.permitNo ?? branch.bir_permit_no,
         paymentMethodLabel: lastPaymentMethod ? METHOD_LABEL[lastPaymentMethod] : null,
         referenceNo: lastPaymentReference,
       });
@@ -216,10 +240,11 @@ export default function OrderDetail() {
       const newAmountPaid = order.amount_paid + applied;
       const newStatus: Order["payment_status"] = newAmountPaid >= order.grand_total ? "paid" : "partial";
 
-      await execute("INSERT INTO payments (order_id, amount, method) VALUES (?, ?, ?)", [
+      await execute("INSERT INTO payments (order_id, amount, method, received_by) VALUES (?, ?, ?, ?)", [
         order.id,
         applied,
         paymentMethod,
+        currentUser?.id ?? null,
       ]);
       await execute("UPDATE orders SET amount_paid = ?, payment_status = ? WHERE id = ?", [
         newAmountPaid,
@@ -306,6 +331,7 @@ export default function OrderDetail() {
             {order.kg && `${order.kg} kg`}
             {order.kg && order.loads && " · "}
             {order.loads && `${order.loads} load${order.loads === 1 ? "" : "s"}`}
+            {order.invoice_number != null && ` · INV #${formatInvoiceNumber(order.invoice_number)}`}
           </p>
         </div>
       </div>
@@ -442,8 +468,13 @@ export default function OrderDetail() {
               </span>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium text-ink">{pkg.name} (package)</p>
+                {(order.package_loads ?? 1) > 1 && (
+                  <p className="text-xs text-ink/50">
+                    ₱{pkg.price.toFixed(2)} × {order.package_loads} loads
+                  </p>
+                )}
               </div>
-              <span className="shrink-0 text-sm font-semibold text-ink">₱{pkg.price.toFixed(2)}</span>
+              <span className="shrink-0 text-sm font-semibold text-ink">₱{(pkg.price * Math.max(1, order.package_loads ?? 1)).toFixed(2)}</span>
             </div>
           )}
           {items.map((it) => (
@@ -469,7 +500,7 @@ export default function OrderDetail() {
                 <span>₱{order.subtotal.toFixed(2)}</span>
               </div>
               <div className="flex items-center justify-between text-sm text-emerald-600">
-                <span>Points discount</span>
+                <span>Discount</span>
                 <span>-₱{order.discount_total.toFixed(2)}</span>
               </div>
             </>
@@ -584,17 +615,26 @@ export default function OrderDetail() {
 
       {printError && <p className="mb-3 text-sm text-red-600">{printError}</p>}
 
-      <button
-        type="button"
-        onClick={handlePrint}
-        disabled={printing}
-        className="mb-3 flex w-full items-center justify-center gap-1.5 rounded-2xl bg-brand-500 py-3 text-sm font-semibold text-white shadow-sm disabled:opacity-60"
-      >
-        <Printer size={16} strokeWidth={2.2} />
-        {printing ? "Printing…" : "Print Receipt"}
-      </button>
+      {!branch?.hide_print_receipt && (
+        <button
+          type="button"
+          onClick={handlePrint}
+          disabled={printing}
+          className="mb-3 flex w-full items-center justify-center gap-1.5 rounded-2xl bg-brand-500 py-3 text-sm font-semibold text-white shadow-sm disabled:opacity-60"
+        >
+          <Printer size={16} strokeWidth={2.2} />
+          {printing ? "Printing…" : "Print Receipt"}
+        </button>
+      )}
 
-      <p className="mb-2 px-1 text-xs font-semibold tracking-wide text-ink/40 uppercase">Sales Invoice (BIR)</p>
+      <p className="mb-2 px-1 text-xs font-semibold tracking-wide text-ink/40 uppercase">
+        Sales Invoice (BIR)
+        {order.invoice_number != null && (
+          <span className="ml-1.5 normal-case tracking-normal text-ink/60">
+            · Invoice No. {formatInvoiceNumber(order.invoice_number)}
+          </span>
+        )}
+      </p>
       {invoiceError && <p className="mb-3 text-sm text-red-600">{invoiceError}</p>}
       <div className="grid grid-cols-2 gap-2">
         <button

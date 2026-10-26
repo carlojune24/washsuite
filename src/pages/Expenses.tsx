@@ -2,14 +2,44 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Plus, Wallet, Search, BarChart3, TrendingUp, Receipt } from "lucide-react";
 import { select } from "../lib/db";
-import type { Expense } from "../types";
 import { type Period, periodRange } from "../lib/period";
 import ListRow, { EmptyState, PageHeading } from "../components/ListRow";
 import PeriodFilter from "../components/PeriodFilter";
 
-interface ExpenseRow extends Expense {
+interface ExpenseRow {
+  kind: "expense" | "restock";
+  ref_id: number;
+  description: string;
   category_name: string | null;
+  amount: number;
+  expense_date: string;
 }
+
+// Merges manual expenses with restocked inventory cost (grouped per purchase + usage_type, so a
+// mixed receipt shows as at most two rows here) -- otherwise restock spend (often most of a
+// laundry shop's cost) would never appear on this page at all. See ReportExpenseCategories for
+// the category-breakdown version of the same merge. `kind`/`ref_id` say where a row's "view
+// details" link should go: a real expenses.id, or the inventory_purchases.id it was rolled up from
+// (there's no single expenses row for a restock's item lines to link to).
+const EXPENSES_QUERY = `
+  SELECT 'expense' AS kind, e.id AS ref_id, e.description AS description, c.name AS category_name, e.amount AS amount, e.expense_date AS expense_date
+  FROM expenses e
+  LEFT JOIN expense_categories c ON c.id = e.category_id
+  UNION ALL
+  SELECT
+    'restock' AS kind,
+    m.purchase_id AS ref_id,
+    'Restock' || COALESCE(' — ' || p.supplier, '') AS description,
+    CASE i.usage_type WHEN 'supply' THEN 'Business Supply' ELSE 'POS Consumption' END AS category_name,
+    SUM(m.quantity * COALESCE(m.unit_price, 0)) AS amount,
+    COALESCE(p.purchase_date, date(m.created_at)) AS expense_date
+  FROM inventory_movements m
+  JOIN inventory_items i ON i.id = m.item_id
+  LEFT JOIN inventory_purchases p ON p.id = m.purchase_id
+  WHERE m.movement_type = 'restock'
+  GROUP BY m.purchase_id, i.usage_type
+  ORDER BY expense_date DESC
+`;
 
 export default function Expenses() {
   const [expenses, setExpenses] = useState<ExpenseRow[]>([]);
@@ -19,12 +49,7 @@ export default function Expenses() {
   const [customTo, setCustomTo] = useState("");
 
   useEffect(() => {
-    select<ExpenseRow>(
-      `SELECT e.*, c.name AS category_name
-       FROM expenses e
-       LEFT JOIN expense_categories c ON c.id = e.category_id
-       ORDER BY e.expense_date DESC`,
-    ).then(setExpenses);
+    select<ExpenseRow>(EXPENSES_QUERY).then(setExpenses);
   }, []);
 
   const inPeriod = useMemo(() => {
@@ -130,7 +155,8 @@ export default function Expenses() {
       <ul className="space-y-2">
         {filtered.map((e) => (
           <ListRow
-            key={e.id}
+            key={`${e.kind}-${e.ref_id}-${e.category_name}`}
+            to={e.kind === "expense" ? `/expenses/${e.ref_id}` : `/inventory/purchases/${e.ref_id}`}
             icon={Wallet}
             title={e.description}
             subtitle={`${e.category_name ?? "Uncategorized"} · ${e.expense_date.slice(0, 10)}`}

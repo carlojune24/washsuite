@@ -4,6 +4,7 @@ import {
   checkLicense,
   clearCachedLicense,
   getMachineFingerprint,
+  isTransientLicenseReason,
   licenseErrorMessage,
   loadCachedLicense,
   saveLicenseState,
@@ -38,6 +39,9 @@ export function LicenseGate({ children }: { children: ReactNode }) {
       const result = await checkLicense(cached.license_key);
       if (result.valid) {
         await saveLicenseState(cached.license_key, result);
+      } else if (isTransientLicenseReason(result.reason)) {
+        // Server responded but couldn't confirm anything (its own message says "try again in a
+        // moment") -- treat it the same as not reaching the server at all, below.
       } else {
         await clearCachedLicense();
         setPrefillKey(cached.license_key);

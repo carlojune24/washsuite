@@ -4,6 +4,7 @@ import { ChevronRight, ChevronDown, Clock3, TrendingDown, TrendingUp, CalendarDa
 import type { DtrReportDay } from "../lib/dtrReport";
 import { sumDtrTotals } from "../lib/dtrData";
 import { formatTime, isLate } from "../pages/Attendance";
+import { localDate } from "../lib/localDate";
 
 const STANDARD_SHIFT_HOURS = 8;
 const INITIAL_VISIBLE = 7;
@@ -20,7 +21,7 @@ function dateLabel(dateStr: string) {
 }
 
 function today() {
-  return new Date().toISOString().slice(0, 10);
+  return localDate(new Date());
 }
 
 function totalMeta(d: DtrReportDay) {

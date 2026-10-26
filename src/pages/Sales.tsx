@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type ComponentType } from "react";
 import { Link } from "react-router-dom";
 import {
   Search,
-  Printer,
+  FileDown,
   Coins,
   ShoppingBag,
   PackageCheck,
@@ -17,11 +17,14 @@ import {
   ArrowDownWideNarrow,
   Layers,
 } from "lucide-react";
+import { toast } from "sonner";
 import { select, formatDateTime } from "../lib/db";
 import type { Order, OrderStatus, PaymentMethod } from "../types";
 import { type Period, periodRange } from "../lib/period";
 import { EmptyState } from "../components/ListRow";
 import PeriodFilter from "../components/PeriodFilter";
+import { generateSalesReportPdf } from "../lib/salesReport";
+import { formatInvoiceNumber } from "../lib/invoice";
 
 const STATUS_STAGES: OrderStatus[] = ["pending", "ready", "claimed", "delivered"];
 const STAGE_LABEL: Record<OrderStatus, string> = {
@@ -77,6 +80,7 @@ export default function Sales() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [methodFilter, setMethodFilter] = useState<PaymentMethod | "all">("all");
   const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     select<OrderRow>(
@@ -141,6 +145,82 @@ export default function Sales() {
     );
   }, [inPeriod, searchQuery, statusFilter, methodFilter, sortOrder]);
 
+  // Feeds the PDF export, deliberately derived from `filtered` (period + status + method +
+  // search) rather than `inPeriod`/`stats` above, so the report's summary numbers always match
+  // exactly the orders listed in it.
+  const periodLabel = useMemo(() => {
+    const range = periodRange(period, customFrom, customTo);
+    if (!range) return "All time";
+    const fmt = (s: string) => new Date(`${s}T00:00:00`).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
+    const prefix = period === "today" ? "Today" : period === "week" ? "This Week" : period === "month" ? "This Month" : "Custom";
+    return range.from === range.to ? `${prefix} (${fmt(range.from)})` : `${prefix} (${fmt(range.from)} – ${fmt(range.to)})`;
+  }, [period, customFrom, customTo]);
+
+  const filterLabel = useMemo(() => {
+    const parts: string[] = [];
+    if (statusFilter !== "all") {
+      parts.push(`Status: ${statusFilter === "paid" ? "Paid" : statusFilter === "ready" ? "Ready" : "Unpaid"}`);
+    }
+    if (methodFilter !== "all") parts.push(`Method: ${METHOD_META[methodFilter].label}`);
+    if (searchQuery.trim()) parts.push(`Search: "${searchQuery.trim()}"`);
+    return parts.length ? parts.join(" · ") : "All statuses & payment methods";
+  }, [statusFilter, methodFilter, searchQuery]);
+
+  const pdfStats = useMemo(() => {
+    const paid = filtered.filter((o) => o.payment_status === "paid");
+    const ready = filtered.filter((o) => o.status === "ready");
+    const unpaid = filtered.filter((o) => o.payment_status === "unpaid");
+    const sum = (rows: OrderRow[]) => rows.reduce((s, o) => s + o.grand_total, 0);
+    return {
+      total: sum(filtered),
+      count: filtered.length,
+      paidCount: paid.length,
+      paidSum: sum(paid),
+      readyCount: ready.length,
+      readySum: sum(ready),
+      unpaidCount: unpaid.length,
+      unpaidSum: sum(unpaid),
+      totalLoads: filtered.reduce((s, o) => s + (o.loads ?? 0), 0),
+      totalKg: filtered.reduce((s, o) => s + (o.kg ?? 0), 0),
+    };
+  }, [filtered]);
+
+  function handleExportPdf() {
+    setExporting(true);
+    try {
+      generateSalesReportPdf({
+        businessName: "WashSuite",
+        periodLabel,
+        filterLabel,
+        totalSum: pdfStats.total,
+        totalCount: pdfStats.count,
+        paidCount: pdfStats.paidCount,
+        paidSum: pdfStats.paidSum,
+        readyCount: pdfStats.readyCount,
+        readySum: pdfStats.readySum,
+        unpaidCount: pdfStats.unpaidCount,
+        unpaidSum: pdfStats.unpaidSum,
+        totalLoads: pdfStats.totalLoads,
+        totalKg: pdfStats.totalKg,
+        rows: filtered.map((o) => ({
+          order_number: o.order_number,
+          drop_off_at: o.drop_off_at,
+          customer_name: o.customer_name,
+          item_label: o.item_label,
+          status: o.status,
+          payment_status: o.payment_status,
+          payment_method: o.payment_method ? METHOD_META[o.payment_method].label : null,
+          grand_total: o.grand_total,
+        })),
+      });
+      toast.success("Sales report exported");
+    } catch (err) {
+      toast.error(`Couldn't export PDF: ${String(err instanceof Error ? err.message : err)}`);
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
     <div className="flex h-full flex-col">
       <div className="shrink-0">
@@ -152,13 +232,14 @@ export default function Sales() {
         <div className="flex shrink-0 gap-2">
           <button
             type="button"
-            onClick={() => window.print()}
-            className="flex h-10 items-center gap-1.5 rounded-full border border-brand-500/30 bg-surface px-3.5 text-xs font-semibold text-brand-500 shadow-sm"
+            onClick={handleExportPdf}
+            disabled={exporting}
+            className="flex h-10 items-center gap-1.5 rounded-full border border-brand-500/30 bg-surface px-3.5 text-xs font-semibold text-brand-500 shadow-sm disabled:opacity-60"
           >
-            <Printer size={15} strokeWidth={2.2} />
-            Print
+            <FileDown size={15} strokeWidth={2.2} />
+            {exporting ? "Exporting…" : "Export PDF"}
           </button>
-          
+
         </div>
       </div>
 
@@ -335,6 +416,7 @@ function OrderCard({ order }: { order: OrderRow }) {
             </div>
             <p className="mt-0.5 truncate text-xs text-ink/40">
               {order.order_number} · {formatDateTime(order.drop_off_at)}
+              {order.invoice_number != null && ` · INV #${formatInvoiceNumber(order.invoice_number)}`}
             </p>
           </div>
 

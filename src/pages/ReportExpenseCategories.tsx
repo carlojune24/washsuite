@@ -7,11 +7,35 @@ import PeriodFilter from "../components/PeriodFilter";
 import ListRow, { EmptyState } from "../components/ListRow";
 
 interface CategoryRow {
-  category_id: number | null;
   category_name: string | null;
   total: number;
   count: number;
 }
+
+// Merges manual expenses with restocked inventory cost, so a category breakdown reflects real
+// money out (detergent/supplies bought via Restock) instead of only manually-entered expenses.
+// Restock lines don't have an expense_categories row -- they're labeled by each item's usage_type
+// instead (POS Consumption / Business Supply), same split used on the item and Restock forms.
+const COMBINED_QUERY = `
+  SELECT category_name, SUM(amount) AS total, COUNT(*) AS count
+  FROM (
+    SELECT c.name AS category_name, e.amount AS amount, date(e.expense_date) AS entry_date
+    FROM expenses e
+    LEFT JOIN expense_categories c ON c.id = e.category_id
+    UNION ALL
+    SELECT
+      CASE i.usage_type WHEN 'supply' THEN 'Business Supply' ELSE 'POS Consumption' END AS category_name,
+      m.quantity * COALESCE(m.unit_price, 0) AS amount,
+      date(COALESCE(p.purchase_date, m.created_at)) AS entry_date
+    FROM inventory_movements m
+    JOIN inventory_items i ON i.id = m.item_id
+    LEFT JOIN inventory_purchases p ON p.id = m.purchase_id
+    WHERE m.movement_type = 'restock'
+  ) combined
+  {where}
+  GROUP BY category_name
+  ORDER BY total DESC
+`;
 
 export default function ReportExpenseCategories() {
   const [period, setPeriod] = useState<Period>("month");
@@ -25,21 +49,13 @@ export default function ReportExpenseCategories() {
     const conditions: string[] = [];
     const params: unknown[] = [];
     if (range) {
-      conditions.push("e.expense_date >= ?", "e.expense_date <= ?");
+      conditions.push("entry_date >= ?", "entry_date <= ?");
       params.push(range.from, range.to);
     }
     const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
 
     setLoading(true);
-    select<CategoryRow>(
-      `SELECT e.category_id, c.name AS category_name, SUM(e.amount) AS total, COUNT(*) AS count
-       FROM expenses e
-       LEFT JOIN expense_categories c ON c.id = e.category_id
-       ${where}
-       GROUP BY e.category_id
-       ORDER BY total DESC`,
-      params,
-    ).then((r) => {
+    select<CategoryRow>(COMBINED_QUERY.replace("{where}", where), params).then((r) => {
       setRows(r);
       setLoading(false);
     });
@@ -83,7 +99,7 @@ export default function ReportExpenseCategories() {
           const pct = grandTotal > 0 ? (r.total / grandTotal) * 100 : 0;
           return (
             <ListRow
-              key={r.category_id ?? "uncategorized"}
+              key={r.category_name ?? "uncategorized"}
               icon={PieChart}
               title={r.category_name ?? "Uncategorized"}
               subtitle={`${r.count} expense${r.count === 1 ? "" : "s"} · ${pct.toFixed(0)}% of total`}

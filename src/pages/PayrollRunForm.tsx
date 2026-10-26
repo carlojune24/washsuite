@@ -4,6 +4,7 @@ import { ChevronLeft, CalendarRange } from "lucide-react";
 import { execute, select } from "../lib/db";
 import { computeGrossPay, FULL_DAYS_SQL, REGULAR_HOURS_SQL, OVERTIME_HOURS_SQL, UNDERTIME_HOURS_SQL } from "../lib/payroll";
 import type { Worker, WorkerDeduction, PayrollSettings } from "../types";
+import { localDate } from "../lib/localDate";
 
 interface AttendanceAgg {
   worker_id: number;
@@ -14,12 +15,12 @@ interface AttendanceAgg {
 }
 
 function today() {
-  return new Date().toISOString().slice(0, 10);
+  return localDate(new Date());
 }
 
 function firstOfMonth() {
   const d = new Date();
-  return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10);
+  return localDate(new Date(d.getFullYear(), d.getMonth(), 1));
 }
 
 export default function PayrollRunForm() {
@@ -51,6 +52,16 @@ export default function PayrollRunForm() {
     setSaving(true);
     setError(null);
     try {
+      // Approved/paid runs have already committed pay for their days; overlapping them double-pays.
+      const [overlap] = await select<{ period_start: string; period_end: string }>(
+        "SELECT period_start, period_end FROM payroll_runs WHERE status != 'draft' AND period_start <= ? AND period_end >= ? LIMIT 1",
+        [periodEnd, periodStart],
+      );
+      if (overlap) {
+        setError(`Overlaps an approved payroll run (${overlap.period_start} – ${overlap.period_end}). Pick dates after it.`);
+        setSaving(false);
+        return;
+      }
       const [workers, attendanceRows, deductionAssignments, [settings]] = await Promise.all([
         select<Worker>("SELECT * FROM workers WHERE is_active = 1 ORDER BY full_name"),
         select<AttendanceAgg>(

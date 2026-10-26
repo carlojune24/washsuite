@@ -20,6 +20,7 @@ import type {
   Worker,
   PaymentMethod,
 } from "../types";
+import { localDate } from "../lib/localDate";
 
 interface Line {
   included: boolean;
@@ -32,7 +33,7 @@ function currentPeriod() {
 }
 
 function today() {
-  return new Date().toISOString().slice(0, 10);
+  return localDate(new Date());
 }
 
 function periodLabel(period: string) {

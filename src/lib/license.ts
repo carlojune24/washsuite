@@ -85,6 +85,17 @@ const REASON_MESSAGES: Record<string, string> = {
   server_error: "The license server had a problem. Try again in a moment.",
 };
 
+/**
+ * "server_error" means the server responded but couldn't confirm anything either way -- it is
+ * not proof the license is bad. Callers that are re-validating an already-cached, already-valid
+ * license should treat this exactly like a network failure (keep trusting the cache) instead of
+ * clearing it and locking the user out over what the server's own message calls a "try again in
+ * a moment" hiccup.
+ */
+export function isTransientLicenseReason(reason: string | null | undefined): boolean {
+  return reason === "server_error";
+}
+
 export function licenseErrorMessage(reason: string | null | undefined, otherDeviceLastSeen?: string | null): string {
   if (reason === "activation_limit_reached") {
     const base = "This license is already active on another device.";

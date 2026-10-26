@@ -20,10 +20,20 @@ export default function ReportExpenseTrend() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Merges manual expenses with restocked inventory cost -- see ReportExpenseCategories for why
+    // (restock spend otherwise never shows up here at all).
     select<MonthRow>(
-      `SELECT strftime('%Y-%m', expense_date) AS month, SUM(amount) AS total, COUNT(*) AS count
-       FROM expenses
-       WHERE expense_date >= date('now', '-12 months')
+      `SELECT strftime('%Y-%m', entry_date) AS month, SUM(amount) AS total, COUNT(*) AS count
+       FROM (
+         SELECT date(e.expense_date) AS entry_date, e.amount AS amount
+         FROM expenses e
+         UNION ALL
+         SELECT date(COALESCE(p.purchase_date, m.created_at)) AS entry_date, m.quantity * COALESCE(m.unit_price, 0) AS amount
+         FROM inventory_movements m
+         LEFT JOIN inventory_purchases p ON p.id = m.purchase_id
+         WHERE m.movement_type = 'restock'
+       ) combined
+       WHERE entry_date >= date('now', '-12 months')
        GROUP BY month
        ORDER BY month`,
     ).then((r) => {

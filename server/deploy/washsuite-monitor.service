@@ -1,0 +1,26 @@
+[Unit]
+Description=WashSuite Online Monitoring API
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=washmonitor
+Group=washmonitor
+WorkingDirectory=/opt/washsuite-monitor
+EnvironmentFile=/opt/washsuite-monitor/.env
+ExecStart=/opt/washsuite-monitor/bin/washsuite-monitor
+Restart=on-failure
+RestartSec=5
+
+# Hardening -- washmonitor has no login shell and owns nothing outside this directory tree,
+# so there's little a compromised process could do to the rest of the box even without these,
+# but they cost nothing and narrow the blast radius further.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/washsuite-monitor
+
+[Install]
+WantedBy=multi-user.target

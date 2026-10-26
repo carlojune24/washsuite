@@ -16,6 +16,7 @@ import {
   Banknote,
   Coins,
   WashingMachine,
+  Gauge,
   IdCard,
   Clock,
   HandCoins,
@@ -28,6 +29,7 @@ import {
 import type { ComponentType } from "react";
 import type { OrderStatus } from "../types";
 import { useAuth } from "../lib/auth";
+import { sensorServerAvailable } from "../lib/sensors";
 
 interface Counts {
   orders: number;
@@ -61,6 +63,7 @@ const BUSINESS_ACTIONS = [
     { to: "/inventory", label: "Stock", icon: Package, iconClassName: "bg-lime-100 text-lime-600 group-hover:bg-lime-500", pageKey: "inventory" },
     { to: "/payroll", label: "Payroll", icon: Banknote, iconClassName: "bg-cyan-100 text-cyan-600 group-hover:bg-cyan-500", pageKey: "payroll" },
   { to: "/services", label: "Services", icon: WashingMachine, iconClassName: "bg-blue-100 text-blue-600 group-hover:bg-blue-500", pageKey: "services" },
+  { to: "/settings/machine-status", label: "Machine Status", icon: Gauge, iconClassName: "bg-sky-100 text-sky-600 group-hover:bg-sky-500", pageKey: null },
   { to: "/packages", label: "Packages", icon: Layers, iconClassName: "bg-purple-100 text-purple-600 group-hover:bg-purple-500", pageKey: "packages" },
   { to: "/addons", label: "Add-ons", icon: Sparkles, iconClassName: "bg-pink-100 text-pink-600 group-hover:bg-pink-500", pageKey: "addons" },
   { to: "/promos", label: "Promos", icon: Tag, iconClassName: "bg-orange-100 text-orange-600 group-hover:bg-orange-500", pageKey: "promos" },
@@ -82,31 +85,40 @@ export default function Dashboard() {
   const [counts, setCounts] = useState<Counts | null>(null);
   const [recentOrders, setRecentOrders] = useState<RecentOrder[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [sensorsAvailable, setSensorsAvailable] = useState(false);
 
   const visibleQuickActions = QUICK_ACTIONS.filter((a) => hasAccess(a.pageKey));
-  const visibleBusinessActions = BUSINESS_ACTIONS.filter((a) => !a.pageKey || hasAccess(a.pageKey));
+  const visibleBusinessActions = BUSINESS_ACTIONS.filter((a) => !a.pageKey || hasAccess(a.pageKey)).filter(
+    (a) => a.to !== "/settings/machine-status" || sensorsAvailable,
+  );
+
+  useEffect(() => {
+    sensorServerAvailable().then(setSensorsAvailable);
+  }, []);
 
   useEffect(() => {
     (async () => {
       try {
-        const [[orders]] = await Promise.all([select<{ c: number }>("SELECT COUNT(*) as c FROM orders")]);
+        const [[orders]] = await Promise.all([
+          select<{ c: number }>("SELECT COUNT(*) as c FROM orders WHERE status != 'cancelled' AND date(drop_off_at, 'localtime') = date('now', 'localtime')"),
+        ]);
         const [[customers]] = await Promise.all([select<{ c: number }>("SELECT COUNT(*) as c FROM customers")]);
         const [[lowStock]] = await Promise.all([
           select<{ c: number }>("SELECT COUNT(*) as c FROM inventory_items WHERE quantity_on_hand <= reorder_level"),
         ]);
         const [[todaySales]] = await Promise.all([
           select<{ total: number | null }>(
-            "SELECT SUM(grand_total) as total FROM orders WHERE date(drop_off_at) = date('now')",
+            "SELECT SUM(grand_total) as total FROM orders WHERE status != 'cancelled' AND date(drop_off_at, 'localtime') = date('now', 'localtime')",
           ),
         ]);
         const [[yesterdaySales]] = await Promise.all([
           select<{ total: number | null }>(
-            "SELECT SUM(grand_total) as total FROM orders WHERE date(drop_off_at) = date('now', '-1 day')",
+            "SELECT SUM(grand_total) as total FROM orders WHERE status != 'cancelled' AND date(drop_off_at, 'localtime') = date('now', 'localtime', '-1 day')",
           ),
         ]);
         const [[expensesToday]] = await Promise.all([
           select<{ total: number | null }>(
-            "SELECT SUM(amount) as total FROM expenses WHERE date(expense_date) = date('now')",
+            "SELECT SUM(amount) as total FROM expenses WHERE date(expense_date, 'localtime') = date('now', 'localtime')",
           ),
         ]);
         setCounts({
