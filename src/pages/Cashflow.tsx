@@ -197,8 +197,10 @@ export default function Cashflow() {
   const visible = useMemo(() => inPeriod.filter((r) => !isHiddenUninvoiced(r)), [inPeriod, branch]);
 
   const stats = useMemo(() => {
-    const income = visible.filter((r) => r.entry_type === "income" && !r.receivable);
-    const expense = visible.filter((r) => r.entry_type === "expense");
+    // Owner capital injections / withdrawals ("adjustment") move cash but aren't business income or
+    // expense, so they stay out of these cards (cash on hand and the running balance still count them).
+    const income = visible.filter((r) => r.entry_type === "income" && !r.receivable && r.source !== "adjustment");
+    const expense = visible.filter((r) => r.entry_type === "expense" && r.source !== "adjustment");
     const incomeSum = income.reduce((s, r) => s + r.amount, 0);
     const expenseSum = expense.reduce((s, r) => s + r.amount, 0);
     return { incomeSum, incomeCount: income.length, expenseSum, expenseCount: expense.length, net: incomeSum - expenseSum };
@@ -208,8 +210,8 @@ export default function Cashflow() {
     if (period !== "month") return null;
     const prev = prevMonthOf(month);
     const rows = withBalance.filter((r) => r.entry_date.slice(0, 7) === prev && !isHiddenUninvoiced(r));
-    const incomeSum = rows.filter((r) => r.entry_type === "income" && !r.receivable).reduce((s, r) => s + r.amount, 0);
-    const expenseSum = rows.filter((r) => r.entry_type === "expense").reduce((s, r) => s + r.amount, 0);
+    const incomeSum = rows.filter((r) => r.entry_type === "income" && !r.receivable && r.source !== "adjustment").reduce((s, r) => s + r.amount, 0);
+    const expenseSum = rows.filter((r) => r.entry_type === "expense" && r.source !== "adjustment").reduce((s, r) => s + r.amount, 0);
     return { incomeSum, expenseSum, net: incomeSum - expenseSum };
   }, [withBalance, period, month, branch]);
 
@@ -273,8 +275,8 @@ export default function Cashflow() {
   }, [categoryFilter, methodFilter]);
 
   const pdfStats = useMemo(() => {
-    const income = filtered.filter((r) => r.entry_type === "income" && !r.receivable);
-    const expense = filtered.filter((r) => r.entry_type === "expense");
+    const income = filtered.filter((r) => r.entry_type === "income" && !r.receivable && r.source !== "adjustment");
+    const expense = filtered.filter((r) => r.entry_type === "expense" && r.source !== "adjustment");
     const pending = filtered.filter((r) => r.receivable);
     const incomeSum = income.reduce((s, r) => s + r.amount, 0);
     const expenseSum = expense.reduce((s, r) => s + r.amount, 0);
