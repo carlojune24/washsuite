@@ -35,7 +35,7 @@ interface PayslipRow extends Payslip {
 
 const METHOD_META: Record<PaymentMethod, { label: string; icon: typeof Banknote }> = {
   cash: { label: "Cash", icon: Banknote },
-  gcash: { label: "GCash", icon: Smartphone },
+  gcash: { label: "E-wallet", icon: Smartphone },
   card: { label: "Card", icon: CreditCard },
   bank_transfer: { label: "Bank Transfer", icon: Landmark },
 };

@@ -463,7 +463,7 @@ export default function RestockForm() {
                 (paymentMethod === m ? "bg-brand-500 text-white" : "text-ink/50")
               }
             >
-              {m === "gcash" ? "GCash" : "Cash"}
+              {m === "gcash" ? "E-wallet" : "Cash"}
             </button>
           ))}
         </div>

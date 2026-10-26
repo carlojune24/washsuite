@@ -753,7 +753,7 @@ export default function OrderForm() {
           savedOrder.sc_pwd_discount_amount > 0
             ? { idNo: savedOrder.sc_pwd_id_no, name: savedOrder.sc_pwd_name, discountAmount: savedOrder.sc_pwd_discount_amount }
             : null,
-        paymentMethodLabel: paymentMethod === "cash" ? "Cash" : "GCash",
+        paymentMethodLabel: paymentMethod === "cash" ? "Cash" : "E-wallet",
         referenceNo: null,
         terms: branch.invoice_terms,
       });
@@ -793,7 +793,7 @@ export default function OrderForm() {
           ? `${formatInvoiceNumber(invoiceSeries.seriesStart)}-${formatInvoiceNumber(invoiceSeries.seriesEnd)}`
           : null,
         birPermitNo: invoiceSeries?.permitNo ?? branch.bir_permit_no,
-        paymentMethodLabel: paymentMethod === "cash" ? "Cash" : "GCash",
+        paymentMethodLabel: paymentMethod === "cash" ? "Cash" : "E-wallet",
         referenceNo: null,
       });
     } catch (err) {
@@ -1506,7 +1506,7 @@ export default function OrderForm() {
                       }
                     >
                       <Smartphone size={15} strokeWidth={2.2} />
-                      GCash
+                      E-wallet
                     </button>
                   </div>
 
@@ -1549,10 +1549,10 @@ export default function OrderForm() {
                         <div className="mb-3 flex flex-col items-center rounded-xl bg-surface-muted p-3">
                           <img
                             src={branch.gcash_qr_image}
-                            alt="GCash QR code"
+                            alt="E-wallet QR code"
                             className="h-40 w-40 rounded-lg bg-white object-contain"
                           />
-                          <span className="mt-2 text-xs font-medium text-ink/50">Scan to pay via GCash</span>
+                          <span className="mt-2 text-xs font-medium text-ink/50">Scan to pay via E-wallet</span>
                         </div>
                       )}
                       <label className="flex items-center gap-2">
@@ -1562,7 +1562,7 @@ export default function OrderForm() {
                           onChange={(e) => setAmountPaidInput(e.target.checked ? String(grandTotal) : "")}
                           className="h-4 w-4 accent-brand-500"
                         />
-                        <span className="text-sm font-medium text-ink">Paid via GCash</span>
+                        <span className="text-sm font-medium text-ink">Paid via E-wallet</span>
                       </label>
                     </div>
                   )}

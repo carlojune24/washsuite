@@ -12,7 +12,7 @@ const AMBER_600: [number, number, number] = [217, 119, 6];
 
 const METHOD_LABEL: Record<PaymentMethod, string> = {
   cash: "Cash",
-  gcash: "GCash",
+  gcash: "E-wallet",
   card: "Card",
   bank_transfer: "Bank Transfer",
 };

@@ -142,14 +142,14 @@ export default function BranchForm() {
         </div>
       </div>
 
-      <p className="mb-2 px-1 text-xs font-semibold tracking-wide text-ink/40 uppercase">GCash</p>
+      <p className="mb-2 px-1 text-xs font-semibold tracking-wide text-ink/40 uppercase">E-wallet</p>
       <div className="mb-4 rounded-2xl bg-surface p-4 shadow-sm">
         <span className="mb-2 block text-xs font-medium text-ink/50">
           QR code — shown at checkout so customers can scan to pay
         </span>
         {gcashQrImage ? (
           <div className="relative inline-block">
-            <img src={gcashQrImage} alt="GCash QR code" className="h-32 w-32 rounded-xl object-contain bg-surface-muted" />
+            <img src={gcashQrImage} alt="E-wallet QR code" className="h-32 w-32 rounded-xl object-contain bg-surface-muted" />
             <button
               type="button"
               onClick={() => setGcashQrImage(null)}
@@ -164,7 +164,7 @@ export default function BranchForm() {
             type="button"
             onClick={() => fileInput.current?.click()}
             className="flex h-14 w-14 items-center justify-center rounded-xl bg-brand-200/50 text-brand-600"
-            aria-label="Upload GCash QR code"
+            aria-label="Upload E-wallet QR code"
           >
             <QrCode size={20} strokeWidth={2} />
           </button>

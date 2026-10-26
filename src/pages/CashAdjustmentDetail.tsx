@@ -8,7 +8,7 @@ import type { CashflowEntry } from "../types";
 
 const METHOD_LABEL: Record<string, string> = {
   cash: "Cash",
-  gcash: "GCash",
+  gcash: "E-wallet",
   card: "Card",
   bank_transfer: "Bank Transfer",
 };

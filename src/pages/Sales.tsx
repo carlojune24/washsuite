@@ -37,7 +37,7 @@ const STAGE_LABEL: Record<OrderStatus, string> = {
 
 const METHOD_META: Record<PaymentMethod, { label: string; icon: ComponentType<{ size?: number; strokeWidth?: number }>; className: string }> = {
   cash: { label: "Cash", icon: Banknote, className: "bg-gray-100 text-gray-700" },
-  gcash: { label: "GCash", icon: Smartphone, className: "bg-blue-100 text-blue-700" },
+  gcash: { label: "E-wallet", icon: Smartphone, className: "bg-blue-100 text-blue-700" },
   card: { label: "Card", icon: CreditCard, className: "bg-purple-100 text-purple-700" },
   bank_transfer: { label: "Bank Transfer", icon: Landmark, className: "bg-emerald-100 text-emerald-700" },
 };

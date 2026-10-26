@@ -53,7 +53,7 @@ const PAYMENT_LABEL: Record<Order["payment_status"], string> = {
 
 const METHOD_LABEL: Record<PaymentMethod, string> = {
   cash: "Cash",
-  gcash: "GCash",
+  gcash: "E-wallet",
   card: "Card",
   bank_transfer: "Bank Transfer",
 };
@@ -559,7 +559,7 @@ export default function OrderDetail() {
                     (paymentMethod === m ? "bg-brand-500 text-white" : "text-ink/50")
                   }
                 >
-                  {m === "gcash" ? "GCash" : "Cash"}
+                  {m === "gcash" ? "E-wallet" : "Cash"}
                 </button>
               ))}
             </div>
