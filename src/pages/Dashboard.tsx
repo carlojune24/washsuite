@@ -33,6 +33,7 @@ import { sensorServerAvailable } from "../lib/sensors";
 
 interface Counts {
   orders: number;
+  loads: number;
   customers: number;
   lowStock: number;
   todaySales: number;
@@ -100,11 +101,11 @@ export default function Dashboard() {
     (async () => {
       try {
         const [[orders]] = await Promise.all([
-          select<{ c: number }>("SELECT COUNT(*) as c FROM orders WHERE status != 'cancelled' AND date(drop_off_at, 'localtime') = date('now', 'localtime')"),
+          select<{ c: number; loads: number }>("SELECT COUNT(*) as c, COALESCE(SUM(loads), 0) as loads FROM orders WHERE status != 'cancelled' AND date(drop_off_at, 'localtime') = date('now', 'localtime')"),
         ]);
         const [[customers]] = await Promise.all([select<{ c: number }>("SELECT COUNT(*) as c FROM customers")]);
         const [[lowStock]] = await Promise.all([
-          select<{ c: number }>("SELECT COUNT(*) as c FROM inventory_items WHERE quantity_on_hand <= reorder_level"),
+          select<{ c: number }>("SELECT COUNT(*) as c FROM inventory_items WHERE is_active = 1 AND quantity_on_hand <= reorder_level"),
         ]);
         const [[todaySales]] = await Promise.all([
           select<{ total: number | null }>(
@@ -123,6 +124,7 @@ export default function Dashboard() {
         ]);
         setCounts({
           orders: orders?.c ?? 0,
+          loads: orders?.loads ?? 0,
           customers: customers?.c ?? 0,
           lowStock: lowStock?.c ?? 0,
           todaySales: todaySales?.total ?? 0,
@@ -204,7 +206,7 @@ export default function Dashboard() {
           iconClassName="bg-blue-100 text-blue-600"
           value={counts?.orders ?? "…"}
           label="Orders"
-          subLabel="Today"
+          subLabel={counts ? `Today · ${counts.loads} load${counts.loads === 1 ? "" : "s"}` : "Today"}
           subLabelClassName="text-blue-600"
         />
         <StatCard
