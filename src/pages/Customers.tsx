@@ -132,8 +132,8 @@ export default function Customers() {
   }, [rows, query, statusFilter]);
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="shrink-0">
+    <div className="md:flex md:h-full md:flex-col">
+      <div className="md:shrink-0">
       <div className="mb-4 flex items-center justify-between">
         <PageHeading title="Customers" hint="Manage your customers and their loyalty." />
         <div className="flex shrink-0 gap-2">
@@ -236,7 +236,7 @@ export default function Customers() {
       </div>
       </div>
 
-      <div className="-mx-4 min-h-0 flex-1 overflow-y-auto px-4 pt-4 pb-28">
+      <div className="pt-4 pb-28 md:-mx-4 md:min-h-0 md:flex-1 md:overflow-y-auto md:px-4">
       {filtered.length === 0 && (
         <EmptyState text={customers.length === 0 ? "No customers yet." : "No customers match your filters."} />
       )}

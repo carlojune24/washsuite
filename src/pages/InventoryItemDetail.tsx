@@ -98,8 +98,8 @@ export default function InventoryItemDetail() {
   const isViewingFifoBatch = activeBatch != null && activeBatch.id === batches[0]?.id;
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="shrink-0">
+    <div className="md:flex md:h-full md:flex-col">
+      <div className="md:shrink-0">
         <div className="sticky top-0 z-10 mb-4 flex items-center gap-2 bg-page pb-2">
           <Link
             to="/inventory"
@@ -219,12 +219,12 @@ export default function InventoryItemDetail() {
         )}
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col">
+      <div className="md:flex md:min-h-0 md:flex-1 md:flex-col">
         <p className="mb-2 shrink-0 px-1 text-xs font-semibold tracking-wide text-ink/40 uppercase">Stock history</p>
 
         {movements.length === 0 && <EmptyState text="No stock movements yet." />}
 
-        <ul className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-0.5 pb-1">
+        <ul className="space-y-2 pb-1 md:min-h-0 md:flex-1 md:overflow-y-auto md:pr-0.5">
           {movements.map((m) => {
             const Icon = MOVEMENT_ICON[m.movement_type];
             const rowContent = (
