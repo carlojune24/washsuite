@@ -243,7 +243,7 @@ export default function Sales() {
         </div>
       </div>
 
-      <div className="mb-4 grid grid-cols-4 gap-2">
+      <div className="mb-4 grid grid-cols-2 gap-2 md:grid-cols-4">
         <button
           type="button"
           onClick={() => setStatusFilter("all")}
@@ -252,7 +252,7 @@ export default function Sales() {
           <span className="mb-1.5 flex h-6 w-6 items-center justify-center rounded-lg bg-white/15">
             <Coins size={12} strokeWidth={2.2} />
           </span>
-          <p className="truncate text-lg font-bold">₱{stats.total.toFixed(2)}</p>
+          <p className="text-lg font-bold">₱{stats.total.toFixed(2)}</p>
           <p className="truncate text-[9px] text-white/70">Total sales</p>
           <p className="truncate text-[8px] text-white/60">
             {stats.count} order{stats.count === 1 ? "" : "s"}
@@ -266,7 +266,7 @@ export default function Sales() {
           <span className="mb-1.5 flex h-6 w-6 items-center justify-center rounded-lg bg-emerald-100 text-emerald-600">
             <ShoppingBag size={12} strokeWidth={2.2} />
           </span>
-          <p className="truncate text-lg font-bold text-ink">{stats.paidCount}</p>
+          <p className="text-lg font-bold text-ink">{stats.paidCount}</p>
           <p className="truncate text-[9px] text-ink/50">Paid</p>
           <p className="truncate text-[8px] font-semibold text-emerald-600">₱{stats.paidSum.toFixed(2)}</p>
         </button>
@@ -278,7 +278,7 @@ export default function Sales() {
           <span className="mb-1.5 flex h-6 w-6 items-center justify-center rounded-lg bg-blue-100 text-blue-600">
             <PackageCheck size={12} strokeWidth={2.2} />
           </span>
-          <p className="truncate text-lg font-bold text-ink">{stats.readyCount}</p>
+          <p className="text-lg font-bold text-ink">{stats.readyCount}</p>
           <p className="truncate text-[9px] text-ink/50">Ready</p>
           <p className="truncate text-[8px] font-semibold text-blue-600">₱{stats.readySum.toFixed(2)}</p>
         </button>
@@ -290,7 +290,7 @@ export default function Sales() {
           <span className="mb-1.5 flex h-6 w-6 items-center justify-center rounded-lg bg-red-100 text-red-600">
             <AlertCircle size={12} strokeWidth={2.2} />
           </span>
-          <p className="truncate text-lg font-bold text-ink">{stats.unpaidCount}</p>
+          <p className="text-lg font-bold text-ink">{stats.unpaidCount}</p>
           <p className="truncate text-[9px] text-ink/50">Unpaid</p>
           <p className="truncate text-[8px] font-semibold text-red-600">₱{stats.unpaidSum.toFixed(2)}</p>
         </button>

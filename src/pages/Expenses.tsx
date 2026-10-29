@@ -91,12 +91,12 @@ export default function Expenses() {
         </Link>
       </div>
 
-      <div className="mb-4 grid grid-cols-4 gap-2">
+      <div className="mb-4 grid grid-cols-2 gap-2 md:grid-cols-4">
         <div className="rounded-2xl bg-gradient-to-br from-brand-600 to-brand-500 p-2.5 text-white shadow-sm">
           <span className="mb-1.5 flex h-6 w-6 items-center justify-center rounded-lg bg-white/15">
             <Wallet size={12} strokeWidth={2.2} />
           </span>
-          <p className="truncate text-lg font-bold">₱{stats.total.toFixed(2)}</p>
+          <p className="text-lg font-bold">₱{stats.total.toFixed(2)}</p>
           <p className="truncate text-[9px] text-white/70">Total</p>
           <p className="truncate text-[8px] text-white/60">
             {stats.count} expense{stats.count === 1 ? "" : "s"}
@@ -106,7 +106,7 @@ export default function Expenses() {
           <span className="mb-1.5 flex h-6 w-6 items-center justify-center rounded-lg bg-blue-100 text-blue-600">
             <BarChart3 size={12} strokeWidth={2.2} />
           </span>
-          <p className="truncate text-lg font-bold text-ink">₱{stats.average.toFixed(2)}</p>
+          <p className="text-lg font-bold text-ink">₱{stats.average.toFixed(2)}</p>
           <p className="truncate text-[9px] text-ink/50">Average</p>
           <p className="truncate text-[8px] font-semibold text-blue-600">per expense</p>
         </div>
@@ -114,7 +114,7 @@ export default function Expenses() {
           <span className="mb-1.5 flex h-6 w-6 items-center justify-center rounded-lg bg-amber-100 text-amber-600">
             <TrendingUp size={12} strokeWidth={2.2} />
           </span>
-          <p className="truncate text-lg font-bold text-ink">₱{(stats.top?.amount ?? 0).toFixed(2)}</p>
+          <p className="text-lg font-bold text-ink">₱{(stats.top?.amount ?? 0).toFixed(2)}</p>
           <p className="truncate text-[9px] text-ink/50">Top expense</p>
           <p className="truncate text-[8px] font-semibold text-amber-600">{stats.top?.description ?? "—"}</p>
         </div>
@@ -122,7 +122,7 @@ export default function Expenses() {
           <span className="mb-1.5 flex h-6 w-6 items-center justify-center rounded-lg bg-purple-100 text-purple-600">
             <Receipt size={12} strokeWidth={2.2} />
           </span>
-          <p className="truncate text-lg font-bold text-ink">{stats.count}</p>
+          <p className="text-lg font-bold text-ink">{stats.count}</p>
           <p className="truncate text-[9px] text-ink/50">Transactions</p>
           <p className="truncate text-[8px] font-semibold text-purple-600">this period</p>
         </div>
