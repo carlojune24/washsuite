@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
 import { ChevronLeft } from "lucide-react";
-import { execute, select } from "../lib/db";
+import { execute, select, toEntryTimestamp } from "../lib/db";
 import type { InventoryPurchase } from "../types";
 
 interface LineRow {
@@ -24,6 +24,8 @@ export default function InventoryPurchaseEditForm() {
   const { id } = useParams();
   const navigate = useNavigate();
 
+  const [purchaseDate, setPurchaseDate] = useState("");
+  const [origDate, setOrigDate] = useState("");
   const [supplier, setSupplier] = useState("");
   const [reference, setReference] = useState("");
   const [notes, setNotes] = useState("");
@@ -47,6 +49,8 @@ export default function InventoryPurchaseEditForm() {
       ),
     ]).then(([[p], m]) => {
       if (p) {
+        setPurchaseDate(p.purchase_date);
+        setOrigDate(p.purchase_date);
         setSupplier(p.supplier ?? "");
         setReference(p.reference ?? "");
         setNotes(p.notes ?? "");
@@ -73,6 +77,10 @@ export default function InventoryPurchaseEditForm() {
     e.preventDefault();
     setError(null);
 
+    if (!purchaseDate) {
+      setError("Enter the restock date.");
+      return;
+    }
     for (const l of lineMeta) {
       const line = lines[l.id];
       const newQty = Number(line.quantity);
@@ -91,8 +99,8 @@ export default function InventoryPurchaseEditForm() {
     setSaving(true);
     try {
       await execute(
-        `UPDATE inventory_purchases SET supplier = ?, reference = ?, notes = ? WHERE id = ?`,
-        [supplier.trim() || null, reference.trim() || null, notes.trim() || null, id],
+        `UPDATE inventory_purchases SET purchase_date = ?, supplier = ?, reference = ?, notes = ? WHERE id = ?`,
+        [purchaseDate, supplier.trim() || null, reference.trim() || null, notes.trim() || null, id],
       );
 
       for (const l of lineMeta) {
@@ -111,6 +119,23 @@ export default function InventoryPurchaseEditForm() {
             [delta, l.item_id],
           );
         }
+      }
+
+      // Keep the restock's single cashflow entry in step with the edited quantities/prices.
+      const [{ total }] = await select<{ total: number }>(
+        `SELECT COALESCE((SELECT SUM(quantity * COALESCE(unit_price, 0)) FROM inventory_movements WHERE purchase_id = ?1), 0)
+              + COALESCE((SELECT SUM(amount) FROM expenses WHERE purchase_id = ?1 AND voided_at IS NULL), 0) AS total`,
+        [id],
+      );
+      await execute(
+        "UPDATE cashflow_entries SET amount = ?, description = ? WHERE source = 'restock' AND source_id = ?",
+        [total, supplier.trim() ? `Restock — ${supplier.trim()}` : "Restock", id],
+      );
+      if (purchaseDate !== origDate) {
+        await execute("UPDATE cashflow_entries SET entry_date = ? WHERE source = 'restock' AND source_id = ?", [
+          toEntryTimestamp(purchaseDate),
+          id,
+        ]);
       }
 
       navigate(`/inventory/purchases/${id}`);
@@ -182,6 +207,16 @@ export default function InventoryPurchaseEditForm() {
             })}
           </div>
         </div>
+
+        <label className="block rounded-2xl bg-surface p-3.5 shadow-sm">
+          <span className="mb-1 block text-xs font-medium text-ink/50">Date</span>
+          <input
+            type="date"
+            value={purchaseDate}
+            onChange={(e) => setPurchaseDate(e.target.value)}
+            className="w-full text-sm font-medium text-ink outline-none"
+          />
+        </label>
 
         <label className="block rounded-2xl bg-surface p-3.5 shadow-sm">
           <span className="mb-1 block text-xs font-medium text-ink/50">Supplier</span>

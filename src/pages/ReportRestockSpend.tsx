@@ -29,7 +29,7 @@ export default function ReportRestockSpend() {
 
   useEffect(() => {
     const range = periodRange(period, customFrom, customTo);
-    const conditions: string[] = ["m.movement_type = 'restock'"];
+    const conditions: string[] = ["m.movement_type = 'restock'", "p.voided_at IS NULL"];
     const params: unknown[] = [];
     if (range) {
       conditions.push("substr(m.created_at,1,10) >= ?", "substr(m.created_at,1,10) <= ?");
@@ -52,6 +52,7 @@ export default function ReportRestockSpend() {
         `SELECT m.item_id, i.name, SUM(m.quantity * m.unit_price) AS total, SUM(m.quantity) AS quantity
          FROM inventory_movements m
          JOIN inventory_items i ON i.id = m.item_id
+         LEFT JOIN inventory_purchases p ON p.id = m.purchase_id
          ${where}
          GROUP BY m.item_id
          ORDER BY total DESC

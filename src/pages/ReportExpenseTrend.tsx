@@ -27,11 +27,12 @@ export default function ReportExpenseTrend() {
        FROM (
          SELECT date(e.expense_date) AS entry_date, e.amount AS amount
          FROM expenses e
+         WHERE e.voided_at IS NULL
          UNION ALL
          SELECT date(COALESCE(p.purchase_date, m.created_at)) AS entry_date, m.quantity * COALESCE(m.unit_price, 0) AS amount
          FROM inventory_movements m
          LEFT JOIN inventory_purchases p ON p.id = m.purchase_id
-         WHERE m.movement_type = 'restock'
+         WHERE m.movement_type = 'restock' AND p.voided_at IS NULL
        ) combined
        WHERE entry_date >= date('now', '-12 months')
        GROUP BY month

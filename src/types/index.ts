@@ -160,6 +160,7 @@ export interface InventoryPurchase {
   purchase_date: string;
   created_by: number | null;
   created_at: string;
+  voided_at: string | null;
 }
 
 export interface ServiceType {
@@ -364,6 +365,7 @@ export interface Expense {
   notes: string | null;
   receipt_image: string | null;
   purchase_id: number | null;
+  voided_at: string | null;
 }
 
 export interface ExpenseCategory {

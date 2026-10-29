@@ -1,3 +1,4 @@
+import { localDate } from "./localDate";
 import Database from "@tauri-apps/plugin-sql";
 
 /**
@@ -63,6 +64,12 @@ export function toEntryTimestamp(dateStr: string): string {
  */
 function parseUtcTimestamp(dt: string): Date {
   return new Date(dt.replace(" ", "T") + "Z");
+}
+
+/** Local-calendar "YYYY-MM-DD" of a stored UTC timestamp (slice(0,10) would give the UTC date). */
+export function utcToLocalDate(dt: string): string {
+  const d = parseUtcTimestamp(dt);
+  return isNaN(d.getTime()) ? dt.slice(0, 10) : localDate(d);
 }
 
 /** Formats a stored UTC timestamp in the viewer's local time, e.g. "Jul 21, 2:30 PM". */

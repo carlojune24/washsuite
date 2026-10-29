@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ChevronLeft, Pencil, Undo2 } from "lucide-react";
+import { Ban, ChevronLeft, Pencil, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 import { execute, select } from "../lib/db";
 import { useAuth } from "../lib/auth";
@@ -90,6 +90,38 @@ export default function InventoryPurchaseDetail() {
     });
   }
 
+  function confirmVoid() {
+    toast("Void this restock?", {
+      description: "Removes its cost from expenses, reports and cashflow, and takes out any of its stock not yet used. Stock already used stays used. This can't be undone.",
+      action: { label: "Void", onClick: () => voidRestock() },
+      cancel: { label: "Cancel", onClick: () => {} },
+      duration: 8000,
+    });
+  }
+
+  async function voidRestock() {
+    if (!purchase) return;
+    setRollingBack(true);
+    try {
+      for (const l of lines) {
+        await execute(
+          `UPDATE inventory_items SET quantity_on_hand = quantity_on_hand - ?, updated_at = datetime('now') WHERE id = ?`,
+          [l.quantity_remaining ?? 0, l.item_id],
+        );
+      }
+      // Zeroing the batches takes them out of FIFO consumption and stock-on-hand lookups.
+      await execute("UPDATE inventory_movements SET quantity_remaining = 0 WHERE purchase_id = ?", [purchase.id]);
+      await execute("UPDATE expenses SET voided_at = datetime('now') WHERE purchase_id = ?", [purchase.id]);
+      await execute("UPDATE inventory_purchases SET voided_at = datetime('now') WHERE id = ?", [purchase.id]);
+      await execute("DELETE FROM cashflow_entries WHERE source = 'restock' AND source_id = ?", [purchase.id]);
+      toast.success("Restock voided");
+      navigate("/inventory/purchases");
+    } catch (err) {
+      toast.error(`Couldn't void: ${String(err instanceof Error ? err.message : err)}`);
+      setRollingBack(false);
+    }
+  }
+
   async function rollback() {
     if (!purchase || !canRollback) return;
     setRollingBack(true);
@@ -102,6 +134,7 @@ export default function InventoryPurchaseDetail() {
       }
       await execute("DELETE FROM inventory_movements WHERE purchase_id = ?", [purchase.id]);
       await execute("DELETE FROM inventory_purchases WHERE id = ?", [purchase.id]);
+      await execute("DELETE FROM cashflow_entries WHERE source = 'restock' AND source_id = ?", [purchase.id]);
       toast.success("Restock rolled back");
       navigate("/inventory/purchases");
     } catch (err) {
@@ -124,7 +157,7 @@ export default function InventoryPurchaseDetail() {
           <h1 className="truncate text-xl font-semibold text-ink">{purchase.supplier || "Restock"}</h1>
           <p className="truncate text-xs text-ink/50">{purchase.purchase_date}</p>
         </div>
-        {hasAccess("restock_edit") && (
+        {!purchase.voided_at && hasAccess("restock_edit") && (
           <Link
             to={`/inventory/purchases/${purchase.id}/edit`}
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface text-ink shadow-sm"
@@ -201,7 +234,23 @@ export default function InventoryPurchaseDetail() {
         <p className="mt-0.5 text-2xl font-semibold">₱{total.toFixed(2)}</p>
       </div>
 
-      {hasAccess("restock_rollback") && (
+      {purchase.voided_at && (
+        <p className="mt-4 text-center text-sm font-semibold text-red-600">Voided {purchase.voided_at.slice(0, 10)}</p>
+      )}
+
+      {!purchase.voided_at && hasAccess("restock_void") && (
+        <button
+          type="button"
+          onClick={confirmVoid}
+          disabled={rollingBack}
+          className="mt-4 flex w-full items-center justify-center gap-1.5 rounded-2xl bg-red-50 py-3 text-sm font-semibold text-red-600 shadow-sm disabled:opacity-50"
+        >
+          <Ban size={16} strokeWidth={2.2} />
+          Void restock
+        </button>
+      )}
+
+      {!purchase.voided_at && hasAccess("restock_rollback") && (
         <>
           <button
             type="button"

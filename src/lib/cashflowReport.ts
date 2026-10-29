@@ -114,7 +114,7 @@ export function buildCashflowReportDoc(opts: CashflowReportOptions): jsPDF {
   const cards: { label: string; value: string; sub?: string; color: [number, number, number] }[] = [
     { label: "Income", value: peso(opts.incomeSum), sub: `${opts.incomeCount} txn${opts.incomeCount === 1 ? "" : "s"}`, color: EMERALD_600 },
     { label: "Expenses", value: peso(opts.expenseSum), sub: `${opts.expenseCount} txn${opts.expenseCount === 1 ? "" : "s"}`, color: RED_600 },
-    { label: "Net Cash Flow", value: money(opts.net), color: opts.net < 0 ? RED_600 : EMERALD_600 },
+    { label: "Profit/Loss", value: money(opts.net), color: opts.net < 0 ? RED_600 : EMERALD_600 },
     {
       label: "Pending (Unpaid Sales)",
       value: peso(opts.pendingSum),

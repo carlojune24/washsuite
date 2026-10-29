@@ -20,7 +20,7 @@ import {
   CreditCard,
   FileDown,
 } from "lucide-react";
-import { select, formatTime } from "../lib/db";
+import { select, formatTime, utcToLocalDate } from "../lib/db";
 import type { Branch, CashflowEntry, PaymentStatus, PaymentMethod } from "../types";
 import { EmptyState } from "../components/ListRow";
 import { generateCashflowReportPdf } from "../lib/cashflowReport";
@@ -74,7 +74,7 @@ function toISODate(d: Date) {
 }
 
 function currentMonth() {
-  return new Date().toISOString().slice(0, 7);
+  return localDate(new Date()).slice(0, 7);
 }
 
 function prevMonthOf(month: string) {
@@ -178,7 +178,7 @@ export default function Cashflow() {
 
   const inPeriod = useMemo(() => {
     return withBalance.filter((r) => {
-      const d = r.entry_date.slice(0, 10);
+      const d = utcToLocalDate(r.entry_date);
       if (period === "month") return month ? d.slice(0, 7) === month : true;
       if (dateFrom && d < dateFrom) return false;
       if (dateTo && d > dateTo) return false;
@@ -209,7 +209,7 @@ export default function Cashflow() {
   const prevStats = useMemo(() => {
     if (period !== "month") return null;
     const prev = prevMonthOf(month);
-    const rows = withBalance.filter((r) => r.entry_date.slice(0, 7) === prev && !isHiddenUninvoiced(r));
+    const rows = withBalance.filter((r) => utcToLocalDate(r.entry_date).slice(0, 7) === prev && !isHiddenUninvoiced(r));
     const incomeSum = rows.filter((r) => r.entry_type === "income" && !r.receivable && r.source !== "adjustment").reduce((s, r) => s + r.amount, 0);
     const expenseSum = rows.filter((r) => r.entry_type === "expense" && r.source !== "adjustment").reduce((s, r) => s + r.amount, 0);
     return { incomeSum, expenseSum, net: incomeSum - expenseSum };
@@ -231,7 +231,7 @@ export default function Cashflow() {
   const grouped = useMemo(() => {
     const byDay = new Map<string, Row[]>();
     for (const r of filtered) {
-      const d = r.entry_date.slice(0, 10);
+      const d = utcToLocalDate(r.entry_date);
       if (!byDay.has(d)) byDay.set(d, []);
       byDay.get(d)!.push(r);
     }
@@ -462,7 +462,7 @@ export default function Cashflow() {
           <p className={"truncate text-sm font-bold " + (stats.net < 0 ? "text-red-600" : "text-ink")}>
             {stats.net < 0 ? "-" : ""}₱{Math.abs(stats.net).toFixed(2)}
           </p>
-          <p className="truncate text-[9px] text-ink/50">Net Cash Flow</p>
+          <p className="truncate text-[9px] text-ink/50">Profit/Loss</p>
           {netChange != null && (
             <span
               className={

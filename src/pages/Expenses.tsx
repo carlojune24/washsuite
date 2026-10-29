@@ -25,6 +25,7 @@ const EXPENSES_QUERY = `
   SELECT 'expense' AS kind, e.id AS ref_id, e.description AS description, c.name AS category_name, e.amount AS amount, e.expense_date AS expense_date
   FROM expenses e
   LEFT JOIN expense_categories c ON c.id = e.category_id
+  WHERE e.voided_at IS NULL
   UNION ALL
   SELECT
     'restock' AS kind,
@@ -36,7 +37,7 @@ const EXPENSES_QUERY = `
   FROM inventory_movements m
   JOIN inventory_items i ON i.id = m.item_id
   LEFT JOIN inventory_purchases p ON p.id = m.purchase_id
-  WHERE m.movement_type = 'restock'
+  WHERE m.movement_type = 'restock' AND p.voided_at IS NULL
   GROUP BY m.purchase_id, i.usage_type
   ORDER BY expense_date DESC
 `;

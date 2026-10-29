@@ -19,6 +19,8 @@ export const PAGE_MODULES = [
   { key: "addons", label: "Add-ons" },
   { key: "promos", label: "Promos" },
   { key: "expenses", label: "Expenses" },
+  { key: "expense_void", label: "Expenses – Void" },
+  { key: "restock_void", label: "Restock – Void" },
   { key: "cashflow", label: "Cashflow" },
   { key: "adjustment_rollback", label: "Cashflow – Rollback Adjustment" },
   { key: "attendance", label: "Attendance" },

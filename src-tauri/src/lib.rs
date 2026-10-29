@@ -304,6 +304,12 @@ fn migrations() -> Vec<Migration> {
             sql: include_str!("../migrations/0050_order_package_loads.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 51,
+            description: "void",
+            sql: include_str!("../migrations/0051_void.sql"),
+            kind: MigrationKind::Up,
+        },
     ]
 }
 

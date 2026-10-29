@@ -27,8 +27,9 @@ export default function InventoryPurchases() {
       `SELECT p.id, p.supplier, p.reference, p.receipt_image, p.purchase_date,
               (SELECT COUNT(*) FROM inventory_movements m WHERE m.purchase_id = p.id) AS item_count,
               COALESCE((SELECT SUM(m.quantity * COALESCE(m.unit_price, 0)) FROM inventory_movements m WHERE m.purchase_id = p.id), 0)
-                + COALESCE((SELECT SUM(e.amount) FROM expenses e WHERE e.purchase_id = p.id), 0) AS total_amount
+                + COALESCE((SELECT SUM(e.amount) FROM expenses e WHERE e.purchase_id = p.id AND e.voided_at IS NULL), 0) AS total_amount
        FROM inventory_purchases p
+       WHERE p.voided_at IS NULL
        ORDER BY p.created_at DESC`,
     ).then((rows) => {
       setPurchases(rows);

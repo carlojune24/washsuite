@@ -119,7 +119,7 @@ export default function Dashboard() {
         ]);
         const [[expensesToday]] = await Promise.all([
           select<{ total: number | null }>(
-            "SELECT SUM(amount) as total FROM expenses WHERE date(expense_date, 'localtime') = date('now', 'localtime')",
+            "SELECT SUM(amount) as total FROM expenses WHERE voided_at IS NULL AND date(expense_date, 'localtime') = date('now', 'localtime')",
           ),
         ]);
         setCounts({
